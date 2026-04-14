@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { isKioskDemoMemberEnabled, isKioskDemoMemberId } from "@/lib/kioskDemoMember";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildKioskLeadFirstVisitMessage, buildKioskMessage, type PersonRowForMessaging } from "@/lib/statusResolver";
 
@@ -34,6 +35,27 @@ export async function POST(req: Request) {
 
   const personId = body.data.personId;
   const now = new Date();
+
+  if (isKioskDemoMemberEnabled() && isKioskDemoMemberId(personId)) {
+    const personForMessaging: PersonRowForMessaging = {
+      id: personId,
+      first_name: "Jack",
+      last_name: "Wahl",
+      status: "member",
+      member_state: "active",
+      trial_end_date: null,
+      last_check_in: now.toISOString(),
+    };
+    const message = buildKioskMessage(personForMessaging, now);
+    return NextResponse.json(
+      {
+        messageTitle: message.title,
+        messageBody: message.body,
+        confirmation: { checkInLogged: true },
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
 
   const supabaseAdmin = getSupabaseAdmin();
   const { data, error } = await supabaseAdmin.rpc("kiosk_check_in", { p_person_id: personId });

@@ -7,10 +7,8 @@ export const dynamic = "force-dynamic";
 
 const IdParam = z.object({ id: z.string().uuid() });
 
-export async function POST(
-  req: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+/** Toggle between `active` and `delinquent` in the database (staff UI calls this “flagged”). */
+export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   try {
     await requireAdminFromRequest(req);
   } catch {
@@ -24,7 +22,6 @@ export async function POST(
 
   const memberId = parsed.data.id;
 
-  // MVP: only toggle delinquency for current `member`s.
   const supabaseAdmin = getSupabaseAdmin();
   const { data: person, error: loadError } = await supabaseAdmin
     .from("people")
@@ -40,17 +37,16 @@ export async function POST(
     return NextResponse.json({ error: "Not a member" }, { status: 400 });
   }
 
-  const current = person.member_state === "delinquent" ? "active" : "delinquent";
+  const nextState = person.member_state === "delinquent" ? "active" : "delinquent";
 
   const { error: updateError } = await supabaseAdmin
     .from("people")
-    .update({ member_state: current })
+    .update({ member_state: nextState })
     .eq("id", memberId);
 
   if (updateError) {
     return NextResponse.json({ error: "Failed to update member state" }, { status: 500 });
   }
 
-  return NextResponse.json({ id: memberId, member_state: current }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ id: memberId, member_state: nextState }, { headers: { "Cache-Control": "no-store" } });
 }
-

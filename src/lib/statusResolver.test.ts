@@ -3,6 +3,8 @@ import {
   buildKioskLeadFirstVisitMessage,
   buildKioskMessage,
   getEffectiveStatusForMessaging,
+  KIOSK_MEMBERSHIP_ATTENTION_BODY,
+  KIOSK_MEMBERSHIP_ATTENTION_TITLE,
   type PersonRowForMessaging,
 } from "./statusResolver";
 
@@ -41,7 +43,7 @@ describe("statusResolver", () => {
     expect(eff.daysLeft).toBe(3);
   });
 
-  it("shows delinquent message for delinquent members", () => {
+  it("shows front-desk message for billing-flagged members (DB: delinquent)", () => {
     const now = new Date();
     const person: PersonRowForMessaging = {
       id: "1",
@@ -54,7 +56,25 @@ describe("statusResolver", () => {
     };
 
     const msg = buildKioskMessage(person, now);
-    expect(msg.title).toBe("Please see front desk");
+    expect(msg.title).toBe(KIOSK_MEMBERSHIP_ATTENTION_TITLE);
+    expect(msg.body).toBe(KIOSK_MEMBERSHIP_ATTENTION_BODY);
+  });
+
+  it("shows same front-desk message for frozen members", () => {
+    const now = new Date();
+    const person: PersonRowForMessaging = {
+      id: "1",
+      first_name: "Alex",
+      last_name: "Rossi",
+      status: "member",
+      member_state: "frozen",
+      trial_end_date: null,
+      last_check_in: now.toISOString(),
+    };
+
+    const msg = buildKioskMessage(person, now);
+    expect(msg.title).toBe(KIOSK_MEMBERSHIP_ATTENTION_TITLE);
+    expect(msg.body).toBe(KIOSK_MEMBERSHIP_ATTENTION_BODY);
   });
 
   it("shows last visit days ago for active members", () => {

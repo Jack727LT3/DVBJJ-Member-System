@@ -1,5 +1,11 @@
 export type PersonStatus = "lead" | "trial" | "guest" | "member";
+/** Stored in DB; staff-facing label for `delinquent` is “flagged” (billing / payment issues). */
 export type MemberState = "active" | "delinquent" | "frozen" | "canceled" | null;
+
+/** Kiosk copy when a member must see staff — do not use the words “flagged” or “delinquent”. */
+export const KIOSK_MEMBERSHIP_ATTENTION_TITLE = "Membership Error";
+export const KIOSK_MEMBERSHIP_ATTENTION_BODY =
+  "Please see the front desk. If your membership is on hold, past due, or canceled, our team can help you get back on the mats.";
 
 export type PersonRowForMessaging = {
   id: string;
@@ -74,13 +80,8 @@ export function buildKioskMessage(
   const name = safeName(person.first_name, person.last_name);
 
   if (effective.status === "member") {
-    if (effective.member_state === "delinquent") {
-      return { title: "Please see front desk", body: "" };
-    }
-
-    // Treat any non-delinquent non-active member_state as "please see front desk" to be safe.
     if (effective.member_state !== "active" && effective.member_state !== null) {
-      return { title: "Please see front desk", body: "" };
+      return { title: KIOSK_MEMBERSHIP_ATTENTION_TITLE, body: KIOSK_MEMBERSHIP_ATTENTION_BODY };
     }
 
     const daysAgo = effective.daysAgo;
@@ -97,7 +98,7 @@ export function buildKioskMessage(
   }
 
   if (effective.status === "guest") {
-    return { title: "Welcome!", body: "Please check in with front desk" };
+    return { title: "Welcome!", body: "Please sign in with the front desk." };
   }
 
   // lead for messaging is handled separately for "lead first visit".

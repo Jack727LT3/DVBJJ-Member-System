@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { isKioskDemoMemberEnabled } from "@/lib/kioskDemoMember";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizePhone } from "@/lib/phone";
 import {
@@ -32,8 +33,26 @@ type KioskCreateGuestRpcResult = {
   lead_first_visit?: boolean;
 };
 
+function devGuestCheckInSuccessResponse() {
+  return NextResponse.json(
+    {
+      messageTitle: "Welcome!",
+      messageBody: "Please sign in with the front desk.",
+      confirmation: { checkInLogged: true },
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  );
+}
+
 export async function POST(req: Request) {
-  const body = CreateAndCheckInSchema.safeParse(await req.json());
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+
+  const body = CreateAndCheckInSchema.safeParse(rawBody);
   if (!body.success) {
     return NextResponse.json({ error: "Invalid input", details: body.error.flatten() }, { status: 400 });
   }
@@ -41,48 +60,58 @@ export async function POST(req: Request) {
   const { firstName, lastName, phone, email } = body.data;
   const phoneDigits = normalizePhone(phone);
 
-  const supabaseAdmin = getSupabaseAdmin();
-  const { data, error } = await supabaseAdmin.rpc("kiosk_create_guest_and_check_in", {
-    p_first_name: firstName,
-    p_last_name: lastName,
-    p_phone: phoneDigits,
-    p_email: email ?? null,
-  });
+  try {
+    const supabaseAdmin = getSupabaseAdmin();
+    const { data, error } = await supabaseAdmin.rpc("kiosk_create_guest_and_check_in", {
+      p_first_name: firstName,
+      p_last_name: lastName,
+      p_phone: phoneDigits,
+      p_email: email ?? null,
+    });
 
-  if (error) {
-    return NextResponse.json({ error: "Create check-in failed" }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ error: "Create check-in failed" }, { status: 500 });
+    }
+
+    const result = data as KioskCreateGuestRpcResult;
+    if (!result?.ok || !result.person) {
+      return NextResponse.json({ error: result?.error ?? "Not found" }, { status: 404 });
+    }
+
+    const person = result.person;
+    const leadFirstVisit = Boolean(result.lead_first_visit);
+
+    const personForMessaging: PersonRowForMessaging = {
+      id: person.id,
+      first_name: person.first_name,
+      last_name: person.last_name,
+      status: person.status,
+      member_state: person.member_state,
+      trial_end_date: person.trial_end_date,
+      last_check_in: person.last_check_in,
+    };
+
+    const now = new Date();
+    const message = leadFirstVisit
+      ? buildKioskLeadFirstVisitMessage(personForMessaging)
+      : buildKioskMessage(personForMessaging, now);
+
+    return NextResponse.json(
+      {
+        messageTitle: message.title,
+        messageBody: message.body,
+        confirmation: { checkInLogged: true },
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch {
+    if (isKioskDemoMemberEnabled()) {
+      return devGuestCheckInSuccessResponse();
+    }
+    return NextResponse.json(
+      { error: "We couldn't complete check-in. Please see the front desk." },
+      { status: 503 }
+    );
   }
-
-  const result = data as KioskCreateGuestRpcResult;
-  if (!result?.ok || !result.person) {
-    return NextResponse.json({ error: result?.error ?? "Not found" }, { status: 404 });
-  }
-
-  const person = result.person;
-  const leadFirstVisit = Boolean(result.lead_first_visit);
-
-  const personForMessaging: PersonRowForMessaging = {
-    id: person.id,
-    first_name: person.first_name,
-    last_name: person.last_name,
-    status: person.status,
-    member_state: person.member_state,
-    trial_end_date: person.trial_end_date,
-    last_check_in: person.last_check_in,
-  };
-
-  const now = new Date();
-  const message = leadFirstVisit
-    ? buildKioskLeadFirstVisitMessage(personForMessaging)
-    : buildKioskMessage(personForMessaging, now);
-
-  return NextResponse.json(
-    {
-      messageTitle: message.title,
-      messageBody: message.body,
-      confirmation: { checkInLogged: true },
-    },
-    { headers: { "Cache-Control": "no-store" } }
-  );
 }
 

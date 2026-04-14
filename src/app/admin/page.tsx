@@ -3,8 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
+import AdminAuthShell from "@/components/AdminAuthShell";
 import AdminDashboard from "@/components/AdminDashboard";
+import AdminSignInPanel from "@/components/AdminSignInPanel";
 import type { Session } from "@supabase/supabase-js";
+
+function isSupabaseConfigured(): boolean {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  return url.length > 0 && key.length > 0;
+}
 
 type AnalyticsPayload = {
   total_check_ins_today: number;
@@ -15,15 +23,24 @@ type AnalyticsPayload = {
 };
 
 export default function AdminPage() {
+  const supabaseReady = isSupabaseConfigured();
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
-  const [authState, setAuthState] = useState<"loading" | "signed_out" | "unauthorized" | "authorized">("loading");
+  const [authState, setAuthState] = useState<"loading" | "signed_out" | "unauthorized" | "authorized">(() =>
+    supabaseReady ? "loading" : "signed_out"
+  );
   const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null);
   const [email, setEmail] = useState("");
   const [sendStatus, setSendStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [sendError, setSendError] = useState<string>("");
 
   useEffect(() => {
+    if (!supabaseReady) {
+      setSession(null);
+      setAuthState("signed_out");
+      return;
+    }
+
     let cancelled = false;
     const supabaseBrowser = getSupabaseBrowser();
 
@@ -45,7 +62,7 @@ export default function AdminPage() {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [supabaseReady]);
 
   useEffect(() => {
     if (!session?.access_token) {
@@ -79,6 +96,12 @@ export default function AdminPage() {
   }, [session?.access_token]);
 
   const sendMagicLink = async () => {
+    if (!supabaseReady) {
+      setSendStatus("error");
+      setSendError("Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to use sign-in.");
+      return;
+    }
+
     setSendError("");
     setSendStatus("sending");
     try {
@@ -101,6 +124,12 @@ export default function AdminPage() {
   };
 
   const signOut = async () => {
+    if (!supabaseReady) {
+      setAuthState("signed_out");
+      setAnalytics(null);
+      router.refresh();
+      return;
+    }
     const supabaseBrowser = getSupabaseBrowser();
     await supabaseBrowser.auth.signOut();
     setAuthState("signed_out");
@@ -118,64 +147,52 @@ export default function AdminPage() {
     );
   }
 
-  if (authState === "unauthorized") {
+  if (supabaseReady && authState === "loading") {
+    const message = session?.access_token ? "Opening your dashboard…" : "Loading…";
     return (
-      <main className="min-h-screen flex items-center justify-center p-6">
-        <div className="max-w-md w-full border rounded p-6">
-          <div className="text-lg font-semibold text-red-700">Unauthorized</div>
-          <div className="mt-2 text-sm text-gray-700">
-            Your account is not allowed to access this dashboard.
-          </div>
-          <button
-            onClick={signOut}
-            className="mt-4 w-full px-4 py-3 rounded bg-gray-200 hover:bg-gray-300"
-          >
-            Sign out
-          </button>
+      <AdminAuthShell title={session?.access_token ? "Signed in" : "Please wait"}>
+        <div className="flex flex-col items-center gap-4 py-6 text-center">
+          <div
+            className="h-9 w-9 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900 dark:border-zinc-600 dark:border-t-white"
+            aria-hidden
+          />
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">{message}</p>
         </div>
-      </main>
+      </AdminAuthShell>
     );
   }
 
-  return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="max-w-md w-full border rounded p-6">
-        <div className="text-2xl font-bold">Admin Sign In</div>
-        <div className="mt-2 text-sm text-gray-600">
-          Use a magic link to access the dashboard.
-        </div>
-
-        <div className="mt-5">
-          <label className="text-sm text-gray-700 font-medium">Email</label>
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            inputMode="email"
-            autoComplete="email"
-            className="mt-2 w-full px-3 py-2 border rounded"
-            placeholder="you@domain.com"
-          />
-        </div>
-
+  if (authState === "unauthorized") {
+    return (
+      <AdminAuthShell title="Access restricted">
+        <div className="text-lg font-semibold text-red-700 dark:text-red-400">Unauthorized</div>
+        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+          Your account is not on the admin allow list for this gym.
+        </p>
         <button
-          onClick={sendMagicLink}
-          disabled={sendStatus === "sending"}
-          className="mt-4 w-full px-4 py-3 rounded bg-black text-white hover:bg-gray-800 disabled:opacity-60"
+          type="button"
+          onClick={signOut}
+          className="mt-6 w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-zinc-100 px-4 py-3 text-base font-medium text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
         >
-          {sendStatus === "sending" ? "Sending..." : "Send magic link"}
+          Sign out
         </button>
+      </AdminAuthShell>
+    );
+  }
 
-        {sendStatus === "sent" ? (
-          <div className="mt-3 text-sm text-green-700">
-            Check your email for the sign-in link.
-          </div>
-        ) : null}
+  const previewNotice = supabaseReady
+    ? null
+    : "Preview: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local to send real magic links.";
 
-        {sendStatus === "error" ? (
-          <div className="mt-3 text-sm text-red-700">{sendError}</div>
-        ) : null}
-      </div>
-    </main>
+  return (
+    <AdminSignInPanel
+      email={email}
+      onEmailChange={setEmail}
+      onSubmit={sendMagicLink}
+      sendStatus={sendStatus}
+      sendError={sendError}
+      previewNotice={previewNotice}
+    />
   );
 }
 

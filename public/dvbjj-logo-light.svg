@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" role="img" aria-labelledby="title">
+  <title id="title">David Vieira Brazilian Jiu-Jitsu</title>
+  <rect x="0" y="4" width="5" height="36" rx="1.5" fill="#c8102e"/>
+  <text
+    x="14"
+    y="30"
+    fill="#f4f2ee"
+    font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="22"
+    font-weight="800"
+    letter-spacing="-0.02em"
+  >DVBJJ</text>
+  <text
+    x="14"
+    y="40"
+    fill="#a8a6a3"
+    font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="8.5"
+    font-weight="700"
+    letter-spacing="0.22em"
+  >BRAZILIAN JIU-JITSU</text>
+</svg>

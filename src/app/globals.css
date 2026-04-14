@@ -3,11 +3,25 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* DVBJJ brand (ink + academy red); swap assets in /public if your official palette differs */
+  --brand-ink: #0c0c0e;
+  --brand-red: #c8102e;
+  --brand-red-hover: #a50d26;
+  /* Page / surface background (pure white to match logo); use neutral hovers where contrast is needed */
+  --brand-cream: #ffffff;
+  --brand-cream-dark: #f0f0f2;
+  --brand-muted: #5c5c66;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-red: var(--brand-red);
+  --color-brand-red-hover: var(--brand-red-hover);
+  --color-brand-cream: var(--brand-cream);
+  --color-brand-cream-dark: var(--brand-cream-dark);
+  --color-brand-muted: var(--brand-muted);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -22,5 +36,5 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
 }

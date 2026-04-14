@@ -70,6 +70,14 @@ function formatDateTime(value: string | null | undefined) {
   return d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+function formatMemberStateLabel(state: MemberRow["member_state"]): string {
+  if (state === "active") return "Active";
+  if (state === "delinquent") return "Flagged (billing)";
+  if (state === "frozen") return "Frozen";
+  if (state === "canceled") return "Canceled";
+  return "-";
+}
+
 async function authedFetch<T>(token: string, path: string): Promise<T> {
   const res = await fetch(path, {
     headers: { Authorization: `Bearer ${token}` },
@@ -147,8 +155,8 @@ export default function AdminDashboard({
     return `${analytics.peak_hour}:00`;
   }, [analytics]);
 
-  const toggleDelinquent = async (id: string) => {
-    await fetch(`/api/admin/members/${id}/delinquent`, {
+  const togglePaymentFlag = async (id: string) => {
+    await fetch(`/api/admin/members/${id}/flag`, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -227,7 +235,8 @@ export default function AdminDashboard({
               people.member.length ? (
                 people.member.map((p) => {
                   const name = fullName(p.first_name, p.last_name);
-                  const isDelinquent = p.member_state === "delinquent";
+                  const isPaymentFlagged = p.member_state === "delinquent";
+                  const canToggleFlag = p.member_state === "active" || p.member_state === "delinquent";
                   return (
                     <div key={p.id} className="p-4 flex items-start justify-between gap-4">
                       <div>
@@ -235,14 +244,19 @@ export default function AdminDashboard({
                         <div className="text-sm text-gray-600">Join: {formatDate(p.join_date)}</div>
                         <div className="text-sm text-gray-600">Last visit: {formatDateTime(p.last_visit)}</div>
                         <div className="text-sm text-gray-600">Total visits: {p.total_visits}</div>
-                        <div className="text-sm text-gray-600">Member state: {p.member_state ?? "-"}</div>
+                        <div className="text-sm text-gray-600">Status: {formatMemberStateLabel(p.member_state)}</div>
                       </div>
-                      <button
-                        onClick={() => toggleDelinquent(p.id)}
-                        className="px-3 py-2 rounded bg-black text-white hover:bg-gray-800 text-sm whitespace-nowrap"
-                      >
-                        {isDelinquent ? "Mark Active" : "Mark Delinquent"}
-                      </button>
+                      {canToggleFlag ? (
+                        <button
+                          type="button"
+                          onClick={() => togglePaymentFlag(p.id)}
+                          className="px-3 py-2 rounded bg-black text-white hover:bg-gray-800 text-sm whitespace-nowrap"
+                        >
+                          {isPaymentFlagged ? "Clear billing flag" : "Flag billing issue"}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-500 whitespace-nowrap">Update frozen/canceled in database</span>
+                      )}
                     </div>
                   );
                 })
