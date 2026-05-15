@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { isKioskDemoMemberEnabled } from "@/lib/kioskDemoMember";
+import { isKioskDemoMemberEnabled, matchesKioskDemoGuestPath } from "@/lib/kioskDemoMember";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizePhone } from "@/lib/phone";
 import {
   buildKioskLeadFirstVisitMessage,
   buildKioskMessage,
+  getEffectiveStatusForMessaging,
   type PersonRowForMessaging,
 } from "@/lib/statusResolver";
 
@@ -39,6 +40,7 @@ function devGuestCheckInSuccessResponse() {
       messageTitle: "Welcome!",
       messageBody: "Please sign in with the front desk.",
       confirmation: { checkInLogged: true },
+      trialDaysLeft: 7,
     },
     { headers: { "Cache-Control": "no-store" } }
   );
@@ -59,6 +61,18 @@ export async function POST(req: Request) {
 
   const { firstName, lastName, phone, email } = body.data;
   const phoneDigits = normalizePhone(phone);
+
+  if (isKioskDemoMemberEnabled() && matchesKioskDemoGuestPath(phone)) {
+    return NextResponse.json(
+      {
+        messageTitle: "Welcome",
+        messageBody: "Demo guest check-in",
+        confirmation: { checkInLogged: true },
+        trialDaysLeft: 7,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
 
   try {
     const supabaseAdmin = getSupabaseAdmin();
@@ -96,11 +110,16 @@ export async function POST(req: Request) {
       ? buildKioskLeadFirstVisitMessage(personForMessaging)
       : buildKioskMessage(personForMessaging, now);
 
+    const effective = getEffectiveStatusForMessaging(personForMessaging, now);
+    const trialDaysLeft =
+      effective.status === "trial" ? (effective.daysLeft ?? 0) : null;
+
     return NextResponse.json(
       {
         messageTitle: message.title,
         messageBody: message.body,
         confirmation: { checkInLogged: true },
+        trialDaysLeft,
       },
       { headers: { "Cache-Control": "no-store" } }
     );

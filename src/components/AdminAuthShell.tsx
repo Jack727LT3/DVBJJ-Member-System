@@ -1,6 +1,7 @@
 "use client";
 
 import DvbjjLogo from "@/components/DvbjjLogo";
+import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 
 export default function AdminAuthShell({
   title,
@@ -27,12 +28,13 @@ export default function AdminAuthShell({
       </header>
 
       <div className="flex flex-1 items-center justify-center px-5 py-10 sm:py-14">
-        <div className="w-full max-w-[420px] overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-[0_24px_80px_-20px_rgba(12,12,14,0.25)]">
-          <div className="border-l-4 border-brand-red px-8 py-9 sm:px-10 sm:py-10">
-            {children}
-            {footer}
-          </div>
-        </div>
+        <KioskSnakeBorderCard
+          className="w-full max-w-[420px] shadow-[0_24px_80px_-20px_rgba(12,12,14,0.25)]"
+          innerClassName="px-8 py-9 sm:px-10 sm:py-10"
+        >
+          {children}
+          {footer}
+        </KioskSnakeBorderCard>
       </div>
     </main>
   );

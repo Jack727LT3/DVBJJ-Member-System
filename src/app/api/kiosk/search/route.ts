@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { buildKioskDemoSearchResults, matchesKioskDemoLookup } from "@/lib/kioskDemoMember";
+import {
+  buildKioskDemoSearchResults,
+  matchesKioskDemoGuestPath,
+  matchesKioskDemoLookup,
+} from "@/lib/kioskDemoMember";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { maskPhone, normalizePhone } from "@/lib/phone";
 import { getEffectiveStatusForMessaging } from "@/lib/statusResolver";
@@ -8,7 +12,8 @@ import { getEffectiveStatusForMessaging } from "@/lib/statusResolver";
 export const dynamic = "force-dynamic";
 
 const SearchSchema = z.object({
-  lastName: z.string().trim().min(1).max(60),
+  /** When omitted or empty, search by phone only (all profiles with that number). */
+  lastName: z.string().trim().max(60).optional(),
   phone: z.string().trim().min(1).max(20),
 });
 
@@ -37,11 +42,16 @@ export async function POST(req: Request) {
   }
 
   const now = new Date();
-  const { lastName, phone } = body.data;
+  const { phone } = body.data;
+  const lastName = (body.data.lastName ?? "").trim();
 
   const phoneDigits = normalizePhone(phone);
   if (phoneDigits.length < 4) {
     return NextResponse.json({ error: "Enter a complete phone number" }, { status: 400 });
+  }
+
+  if (matchesKioskDemoGuestPath(phone)) {
+    return NextResponse.json({ results: [] }, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (matchesKioskDemoLookup(lastName, phone)) {
@@ -62,13 +72,11 @@ export async function POST(req: Request) {
 
   try {
     const supabaseAdmin = getSupabaseAdmin();
-    const query = supabaseAdmin
-      .from("people")
-      .select(select)
-      .eq("phone", phoneDigits)
-      .ilike("last_name", `%${lastName}%`)
-      .order("created_at", { ascending: false })
-      .limit(10);
+    let query = supabaseAdmin.from("people").select(select).eq("phone", phoneDigits);
+    if (lastName.length > 0) {
+      query = query.ilike("last_name", `%${lastName}%`);
+    }
+    query = query.order("created_at", { ascending: false }).limit(10);
 
     const { data, error } = await query;
     if (error) {

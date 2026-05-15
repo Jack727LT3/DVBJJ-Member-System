@@ -1,13 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useRef, useState } from "react";
 import { formatLastTrainedLine } from "@/lib/lastTrained";
-import { normalizePhone } from "@/lib/phone";
+import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
 import {
   KIOSK_MEMBERSHIP_ATTENTION_BODY,
   KIOSK_MEMBERSHIP_ATTENTION_TITLE,
 } from "@/lib/statusResolver";
 import DvbjjLogo from "@/components/DvbjjLogo";
+import KioskInteractiveWaiver from "@/components/KioskInteractiveWaiver";
+import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 
 type KioskSearchResult = {
   id: string;
@@ -24,6 +27,8 @@ type CheckInResponse = {
   messageTitle: string;
   messageBody: string;
   confirmation: { checkInLogged: boolean };
+  /** Present when the person is on a trial after check-in; days remaining until trial end. */
+  trialDaysLeft?: number | null;
 };
 
 type Outcome =
@@ -31,10 +36,19 @@ type Outcome =
   | { kind: "active"; firstName: string; lastTrainedLine: string }
   | { kind: "trial"; title: string; body: string }
   | { kind: "message"; title: string; body: string }
-  | { kind: "guestWelcome"; firstName: string };
+  | { kind: "guestWelcome"; firstName: string; trialDaysLeft: number | null };
 
-const GUEST_WELCOME_TAGLINE =
-  "We're glad you're here—your journey with DVBJJ starts today. See the front desk if you need anything before class.";
+const GUEST_WELCOME_TAGLINE = "Please see the front desk to get set up.";
+
+function guestTrialStatusLine(trialDaysLeft: number | null): string {
+  if (trialDaysLeft === null) {
+    return "You're checked in for today.";
+  }
+  if (trialDaysLeft <= 0) {
+    return "Your free trial period has ended—please see the front desk.";
+  }
+  return `You have ${trialDaysLeft} ${trialDaysLeft === 1 ? "day" : "days"} left on your free trial.`;
+}
 
 function fullName(p: { firstName: string; lastName: string }) {
   const fn = sanitizeName(p.firstName);
@@ -57,11 +71,9 @@ function sanitizeName(input: string) {
 
 const AUTO_RESET_MS = 30_000;
 
-/** Both last name and phone (enough digits) are required before we search. */
-function isSearchComplete(lastName: string, phone: string) {
-  const ln = sanitizeName(lastName);
-  const digits = normalizePhone(phone);
-  return ln.length > 0 && digits.length >= 4;
+/** Enough phone digits to look up (matches API validation). */
+function isPhoneLookupComplete(phone: string) {
+  return normalizePhone(phone).length >= 4;
 }
 
 function isGuestFormComplete(first: string, last: string, phone: string, email: string) {
@@ -78,7 +90,6 @@ const inputClass =
   "mt-2 w-full rounded-lg border border-black/10 px-3 py-3 text-base outline-none focus:border-brand-red/40 focus:ring-4 focus:ring-brand-red/15";
 
 export default function KioskHome() {
-  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
 
   const [firstNameGuest, setFirstNameGuest] = useState("");
@@ -90,24 +101,26 @@ export default function KioskHome() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  type FlowMode = "landing" | "memberSearch" | "guestForm" | "outcome";
-  const [mode, setMode] = useState<FlowMode>("landing");
+  type FlowMode = "phoneEntry" | "profilePick" | "guestForm" | "guestWaiver" | "outcome";
+  const [mode, setMode] = useState<FlowMode>("phoneEntry");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  /** After guest check-in API succeeds; shown on final welcome after waiver step. */
+  const [pendingGuestFirstName, setPendingGuestFirstName] = useState<string | null>(null);
+  const [pendingGuestTrialDaysLeft, setPendingGuestTrialDaysLeft] = useState<number | null>(null);
   const resetTimerRef = useRef<number | null>(null);
 
-  const [bothFieldsHint, setBothFieldsHint] = useState<string | null>(null);
+  const [phoneHint, setPhoneHint] = useState<string | null>(null);
   const [lastLookupKey, setLastLookupKey] = useState<string | null>(null);
 
-  function lookupQueryKey(ln: string, ph: string) {
-    return `${sanitizeName(ln)}|${normalizePhone(ph)}`;
+  function lookupQueryKey(ph: string) {
+    return normalizePhone(ph);
   }
 
-  function clearMemberSearchState() {
-    setLastName("");
+  function clearPhoneLookupState() {
     setPhone("");
     setResults([]);
     setSearchError(null);
-    setBothFieldsHint(null);
+    setPhoneHint(null);
     setLastLookupKey(null);
   }
 
@@ -118,34 +131,36 @@ export default function KioskHome() {
     setGuestEmail("");
   }
 
-  const goToLanding = () => {
+  const goToPhoneEntry = () => {
     clearResetTimer();
     setOutcome(null);
-    clearMemberSearchState();
+    setPendingGuestFirstName(null);
+    setPendingGuestTrialDaysLeft(null);
+    clearPhoneLookupState();
     clearGuestFormState();
     setSearchError(null);
-    setMode("landing");
+    setMode("phoneEntry");
   };
 
   const resetAfterOutcome = () => {
-    goToLanding();
+    goToPhoneEntry();
   };
 
   const runLookup = async (e?: FormEvent<HTMLFormElement>) => {
     e?.preventDefault();
 
-    if (mode !== "memberSearch") return;
+    if (mode !== "phoneEntry") return;
 
-    if (!isSearchComplete(lastName, phone)) {
-      setBothFieldsHint("Please enter both your last name and phone number so we can find you.");
+    if (!isPhoneLookupComplete(phone)) {
+      setPhoneHint("Enter your phone number so we can find your profile.");
       return;
     }
 
-    setBothFieldsHint(null);
+    setPhoneHint(null);
     setSearchError(null);
     setSearchLoading(true);
 
-    const notFoundMsg = "Member profile not found. Try again.";
+    const notFoundMsg = "Something went wrong. Please try again.";
 
     try {
       const res = await fetch("/api/kiosk/search", {
@@ -153,7 +168,6 @@ export default function KioskHome() {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
-          lastName: sanitizeName(lastName),
           phone: phone.trim(),
         }),
       });
@@ -167,6 +181,7 @@ export default function KioskHome() {
           setSearchError(notFoundMsg);
           setResults([]);
           setLastLookupKey(null);
+          setSearchLoading(false);
           return;
         }
       }
@@ -176,12 +191,14 @@ export default function KioskHome() {
         setSearchError(res.status === 400 && serverMsg ? serverMsg : notFoundMsg);
         setResults([]);
         setLastLookupKey(null);
+        setSearchLoading(false);
         return;
       }
 
       setSearchError(null);
       setResults((json.results ?? []) as KioskSearchResult[]);
-      setLastLookupKey(lookupQueryKey(lastName, phone));
+      setLastLookupKey(lookupQueryKey(phone));
+      setMode("profilePick");
     } catch {
       setSearchError(notFoundMsg);
       setResults([]);
@@ -312,9 +329,15 @@ export default function KioskHome() {
         return;
       }
 
-      setOutcome({ kind: "guestWelcome", firstName: welcomeFirst });
-      setMode("outcome");
-      startAutoReset();
+      const okBody = json as CheckInResponse;
+      let trialDays: number | null = null;
+      if (typeof okBody.trialDaysLeft === "number") {
+        trialDays = okBody.trialDaysLeft;
+      }
+
+      setPendingGuestFirstName(welcomeFirst);
+      setPendingGuestTrialDaysLeft(trialDays);
+      setMode("guestWaiver");
     } catch {
       setSearchError(guestFailMsg);
     } finally {
@@ -322,46 +345,53 @@ export default function KioskHome() {
     }
   };
 
+  const completeGuestWaiver = () => {
+    const first = pendingGuestFirstName ?? "there";
+    const trialLeft = pendingGuestTrialDaysLeft;
+    setPendingGuestFirstName(null);
+    setPendingGuestTrialDaysLeft(null);
+    setOutcome({ kind: "guestWelcome", firstName: first, trialDaysLeft: trialLeft });
+    setMode("outcome");
+    startAutoReset();
+  };
+
   const openContinueAsGuest = () => {
     setFirstNameGuest("");
-    setLastNameGuest(sanitizeName(lastName));
+    setLastNameGuest("");
     setPhoneGuest(phone.trim());
     setGuestEmail("");
     setSearchError(null);
     setMode("guestForm");
   };
 
-  const startMemberFlow = () => {
-    clearMemberSearchState();
-    setMode("memberSearch");
-  };
-
-  const startGuestFlow = () => {
-    clearGuestFormState();
+  const backToPhoneEntry = () => {
+    setResults([]);
     setSearchError(null);
-    setMode("guestForm");
+    setLastLookupKey(null);
+    setMode("phoneEntry");
   };
 
-  const currentLookupKey = lookupQueryKey(lastName, phone);
+  const currentLookupKey = lookupQueryKey(phone);
   const showNotFoundContinueGuest =
-    mode === "memberSearch" &&
+    mode === "profilePick" &&
     !searchLoading &&
     lastLookupKey !== null &&
     lastLookupKey === currentLookupKey &&
     results.length === 0 &&
     !searchError;
 
-  const outcomeCardClass =
-    "max-w-xl w-full rounded-2xl border border-black/[0.06] bg-white p-8 shadow-[0_24px_80px_-20px_rgba(12,12,14,0.18)] border-l-4";
+  const phoneDisplayLine = formatPhoneDisplay(phone);
 
   const headerStatus =
     mode === "outcome"
       ? "Thanks for checking in"
-      : mode === "guestForm"
-        ? "Guest Check In"
-        : mode === "memberSearch"
-          ? "Member Check In"
-          : "Welcome";
+      : mode === "guestWaiver"
+        ? "Liability waiver"
+        : mode === "guestForm"
+          ? "Free trial"
+          : mode === "profilePick"
+            ? "Confirm your profile"
+            : "Check In";
 
   return (
     <main className="min-h-screen flex flex-col bg-brand-cream font-sans text-brand-ink">
@@ -375,50 +405,58 @@ export default function KioskHome() {
               <p className="text-sm font-medium text-[#f4f2ee]">Member Kiosk</p>
             </div>
           </div>
-          <div className="text-xs text-[#a8a6a3] sm:text-right">{headerStatus}</div>
+          <div className="flex flex-col items-end gap-2 sm:text-right">
+            <div className="text-xs text-[#a8a6a3]">{headerStatus}</div>
+            <Link
+              href="/mvp"
+              className="text-[11px] font-medium text-[#a8a6a3] underline decoration-[#a8a6a3]/50 underline-offset-4 hover:text-[#f4f2ee]"
+            >
+              Staff dashboard
+            </Link>
+          </div>
         </div>
       </header>
 
       {mode === "outcome" && outcome ? (
         <div className="flex flex-1 flex-col items-center justify-center px-5 py-10 text-center">
           {outcome.kind === "membershipHold" ? (
-            <div className={`${outcomeCardClass} border-l-brand-red`}>
+            <KioskSnakeBorderCard fadeIn innerClassName="p-8">
               <div className="text-2xl font-semibold text-brand-ink">{KIOSK_MEMBERSHIP_ATTENTION_TITLE}</div>
               <p className="mt-3 text-base leading-relaxed text-brand-muted">{KIOSK_MEMBERSHIP_ATTENTION_BODY}</p>
-            </div>
+            </KioskSnakeBorderCard>
           ) : null}
 
           {outcome.kind === "active" ? (
-            <div className={`${outcomeCardClass} border-l-brand-red`}>
+            <KioskSnakeBorderCard fadeIn innerClassName="p-8">
               <div className="text-2xl font-semibold text-brand-ink">Welcome, {outcome.firstName}!</div>
               <p className="mt-4 text-lg leading-relaxed text-brand-muted">{outcome.lastTrainedLine}</p>
               <p className="mt-2 text-sm text-brand-muted">You&apos;re checked in. Have a great class.</p>
-            </div>
+            </KioskSnakeBorderCard>
           ) : null}
 
           {outcome.kind === "trial" ? (
-            <div className={`${outcomeCardClass} border-l-brand-red`}>
+            <KioskSnakeBorderCard fadeIn innerClassName="p-8">
               <div className="text-2xl font-semibold text-brand-ink">{outcome.title}</div>
               <p className="mt-4 text-xl font-semibold text-brand-red">{outcome.body}</p>
               <p className="mt-3 text-sm text-brand-muted">You&apos;re checked in for today.</p>
-            </div>
+            </KioskSnakeBorderCard>
           ) : null}
 
           {outcome.kind === "message" ? (
-            <div className={`${outcomeCardClass} border-l-brand-red`}>
+            <KioskSnakeBorderCard fadeIn innerClassName="p-8">
               <div className="text-2xl font-semibold text-brand-ink">{outcome.title}</div>
               {outcome.body ? (
                 <p className="mt-4 text-lg leading-relaxed text-brand-muted">{outcome.body}</p>
               ) : null}
-            </div>
+            </KioskSnakeBorderCard>
           ) : null}
 
           {outcome.kind === "guestWelcome" ? (
-            <div className={`${outcomeCardClass} border-l-brand-red`}>
+            <KioskSnakeBorderCard fadeIn innerClassName="p-8">
               <div className="text-2xl font-semibold text-brand-ink">Welcome, {outcome.firstName}!</div>
               <p className="mt-4 text-lg leading-relaxed text-brand-muted">{GUEST_WELCOME_TAGLINE}</p>
-              <p className="mt-3 text-sm text-brand-muted">You&apos;re checked in for today.</p>
-            </div>
+              <p className="mt-3 text-sm text-brand-muted">{guestTrialStatusLine(outcome.trialDaysLeft)}</p>
+            </KioskSnakeBorderCard>
           ) : null}
 
           <button
@@ -432,15 +470,32 @@ export default function KioskHome() {
             This screen will return to sign in shortly.
           </p>
         </div>
+      ) : mode === "guestWaiver" ? (
+        <div className="flex flex-1 flex-col px-5 py-8">
+          <div className="mx-auto flex h-[min(90vh,880px)] w-full max-w-xl min-h-0 flex-col">
+            <KioskSnakeBorderCard
+              className="flex min-h-0 flex-1 flex-col"
+              innerClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
+            >
+              <KioskInteractiveWaiver
+                firstName={firstNameGuest}
+                lastName={lastNameGuest}
+                phone={phoneGuest}
+                email={guestEmail}
+                onComplete={completeGuestWaiver}
+              />
+            </KioskSnakeBorderCard>
+          </div>
+        </div>
       ) : mode === "guestForm" ? (
         <div className="flex flex-1 flex-col px-5 py-8">
           <div className="mx-auto w-full max-w-xl">
-            <div className="rounded-2xl border border-black/[0.06] bg-white p-6 shadow-sm border-l-4 border-l-brand-red sm:p-8">
+            <KioskSnakeBorderCard className="mx-auto" innerClassName="p-6 sm:p-8">
               <div className="flex justify-center border-b border-black/[0.06] pb-6">
                 <DvbjjLogo variant="on-light" size="hero" />
               </div>
 
-              <h1 className="mt-6 text-xl font-semibold tracking-tight text-brand-ink">Guest Check In</h1>
+              <h1 className="mt-6 text-xl font-semibold tracking-tight text-brand-ink">Start your 7 day free trial</h1>
               <p className="mt-2 text-sm leading-relaxed text-brand-muted">
                 Enter your information, then tap <span className="font-medium text-brand-ink">Enter</span> to check in.
               </p>
@@ -518,174 +573,141 @@ export default function KioskHome() {
 
               <button
                 type="button"
-                onClick={goToLanding}
+                onClick={goToPhoneEntry}
                 className="mt-6 text-sm font-medium text-brand-muted underline decoration-brand-muted/50 underline-offset-4 hover:text-brand-ink"
               >
-                ← Back to sign in options
+                ← Back to phone number
               </button>
-            </div>
+            </KioskSnakeBorderCard>
           </div>
         </div>
-      ) : mode === "memberSearch" ? (
+      ) : mode === "profilePick" ? (
         <div className="flex flex-1 flex-col px-5 py-8">
           <div className="mx-auto w-full max-w-xl">
-            <div className="rounded-2xl border border-black/[0.06] bg-white p-6 shadow-sm border-l-4 border-l-brand-red sm:p-8">
+            <KioskSnakeBorderCard className="mx-auto" innerClassName="p-6 sm:p-8">
               <div className="flex justify-center border-b border-black/[0.06] pb-6">
                 <DvbjjLogo variant="on-light" size="hero" />
               </div>
 
-              <h1 className="mt-6 text-xl font-semibold tracking-tight text-brand-ink">Member Check In</h1>
+              <h1 className="mt-6 text-xl font-semibold tracking-tight text-brand-ink">
+                {results.length === 0
+                  ? "No matching profile"
+                  : results.length > 1
+                    ? "Choose your profile"
+                    : "Confirm it's you"}
+              </h1>
               <p className="mt-2 text-sm leading-relaxed text-brand-muted">
-                Enter your last name and phone number, then tap <span className="font-medium text-brand-ink">Enter</span>{" "}
-                to look up your profile.
+                <span className="font-medium text-brand-ink">{phoneDisplayLine}</span>
               </p>
 
-              <form className="mt-6 space-y-5" onSubmit={runLookup}>
-                <div>
-                  <label className="text-sm font-medium text-brand-ink" htmlFor="kiosk-last">
-                    Last Name
-                  </label>
-                  <input
-                    id="kiosk-last"
-                    value={lastName}
-                    onChange={(e) => {
-                      setLastName(e.target.value);
-                      setBothFieldsHint(null);
-                    }}
-                    autoComplete="family-name"
-                    className={inputClass}
-                    placeholder="Last Name"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-brand-ink" htmlFor="kiosk-phone">
-                    Phone Number
-                  </label>
-                  <input
-                    id="kiosk-phone"
-                    value={phone}
-                    onChange={(e) => {
-                      setPhone(e.target.value);
-                      setBothFieldsHint(null);
-                    }}
-                    inputMode="tel"
-                    autoComplete="tel"
-                    className={inputClass}
-                    placeholder="(555) 123-4567"
-                  />
-                </div>
-
-                {bothFieldsHint ? (
-                  <p className="text-sm font-medium text-brand-red" role="alert">
-                    {bothFieldsHint}
-                  </p>
-                ) : null}
-
-                <button
-                  type="submit"
-                  disabled={searchLoading}
-                  className="w-full rounded-lg bg-brand-red px-4 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-red-hover disabled:cursor-not-allowed disabled:opacity-55"
-                >
-                  {searchLoading ? "Looking you up…" : "Enter"}
-                </button>
-              </form>
-
               {showNotFoundContinueGuest ? (
-                <div className="mt-3 space-y-2">
-                  <p className="text-sm font-medium text-brand-ink">Member profile not found. Try again.</p>
-                  <p className="text-sm text-brand-muted">New here? You can continue as a guest instead.</p>
+                <div className="mt-6 space-y-2">
+                  <p className="text-sm font-medium text-brand-ink">No profile found for this number.</p>
+                  <p className="text-sm text-brand-muted">New here? Use the same number to start your free trial.</p>
                   <button
                     type="button"
                     onClick={openContinueAsGuest}
                     className="mt-1 w-full rounded-lg border border-black/20 bg-white px-4 py-3 text-base font-medium text-brand-ink shadow-sm transition-colors hover:border-black/35 hover:bg-black/[0.02]"
                   >
-                    Continue as guest
+                    Start your 7 day free trial now?
                   </button>
                 </div>
               ) : null}
 
-              {searchError ? <div className="mt-3 text-sm font-medium text-red-700">{searchError}</div> : null}
+              {searchError ? <div className="mt-6 text-sm font-medium text-red-700">{searchError}</div> : null}
 
-              {results.length > 0 || searchLoading ? (
+              {results.length > 0 ? (
                 <div className="mt-6">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="text-sm text-brand-muted">
-                      {searchLoading ? "Searching…" : results.length > 0 ? "Tap your profile to check in." : null}
-                    </div>
-                  </div>
-
-                  {results.length > 0 ? (
-                    <div className="overflow-hidden rounded-xl border border-black/10">
-                      {results.map((r) => (
-                        <button
-                          key={r.id}
-                          type="button"
-                          onClick={() => handleCheckInResult(r)}
-                          disabled={searchLoading}
-                          className="flex w-full items-center justify-between gap-3 border-b border-black/10 px-4 py-4 text-left last:border-b-0 hover:bg-neutral-100 active:bg-neutral-200/80 disabled:opacity-60"
-                        >
-                          <div>
-                            <div className="text-base font-semibold text-brand-ink">{fullName(r)}</div>
-                            <div className="mt-0.5 text-xs font-medium uppercase tracking-wide text-brand-muted">
-                              {r.status === "member"
-                                ? "Member"
-                                : r.status === "trial"
-                                  ? "Trial"
-                                  : r.status === "guest"
-                                    ? "Guest"
-                                    : "Lead"}
-                            </div>
+                  <p className="mb-3 text-sm text-brand-muted">
+                    {results.length > 1 ? "Tap the row that matches you." : "Tap below to check in."}
+                  </p>
+                  <div className="overflow-hidden rounded-xl border border-black/10">
+                    {results.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => handleCheckInResult(r)}
+                        disabled={searchLoading}
+                        className="flex w-full border-b border-black/10 px-4 py-4 text-left last:border-b-0 hover:bg-neutral-100 active:bg-neutral-200/80 disabled:opacity-60"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-base font-semibold text-brand-ink">{fullName(r)}</div>
+                          <div className="mt-0.5 text-sm text-brand-muted">{phoneDisplayLine}</div>
+                          <div className="mt-1.5 text-xs font-medium uppercase tracking-wide text-brand-muted">
+                            {r.status === "member"
+                              ? "Member"
+                              : r.status === "trial"
+                                ? "Trial"
+                                : r.status === "guest"
+                                  ? "Guest"
+                                  : "Lead"}
                           </div>
-                          <div className="text-sm text-brand-muted whitespace-nowrap">{r.phoneMasked}</div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : null}
 
               <button
                 type="button"
-                onClick={goToLanding}
+                onClick={backToPhoneEntry}
                 className="mt-8 text-sm font-medium text-brand-muted underline decoration-brand-muted/50 underline-offset-4 hover:text-brand-ink"
               >
-                ← Back to sign in options
+                ← Edit phone number
               </button>
-            </div>
+            </KioskSnakeBorderCard>
           </div>
         </div>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center px-5 py-10">
-          <div className="w-full max-w-xl">
-            <div className="rounded-2xl border border-black/[0.06] bg-white p-6 shadow-sm border-l-4 border-l-brand-red sm:p-8">
-              <div className="flex justify-center border-b border-black/[0.06] pb-6">
-                <DvbjjLogo variant="on-light" size="hero" />
-              </div>
-
-              <h1 className="mt-6 text-center text-xl font-semibold tracking-tight text-brand-ink">Welcome!</h1>
-              <p className="mt-2 text-center text-sm leading-relaxed text-brand-muted">
-                Choose how you&apos;d like to check in today.
-              </p>
-
-              <div className="mt-8 flex flex-col gap-3">
-                <button
-                  type="button"
-                  onClick={startMemberFlow}
-                  className="w-full rounded-lg bg-brand-red px-4 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-red-hover"
-                >
-                  Member
-                </button>
-                <button
-                  type="button"
-                  onClick={startGuestFlow}
-                  className="w-full rounded-lg border-2 border-black/15 bg-white px-4 py-3.5 text-base font-medium text-brand-ink shadow-sm transition-colors hover:border-black/25 hover:bg-black/[0.02]"
-                >
-                  Guest
-                </button>
-              </div>
+        <div className="flex flex-1 flex-col px-5 py-8">
+          <KioskSnakeBorderCard className="mx-auto" innerClassName="p-6 sm:p-8">
+            <div className="flex justify-center border-b border-black/[0.06] pb-6">
+              <DvbjjLogo variant="on-light" size="hero" />
             </div>
-          </div>
+
+            <h1 className="mt-6 text-center text-xl font-semibold tracking-tight text-brand-ink">Check In</h1>
+            <p className="mt-2 text-center text-sm leading-relaxed text-brand-muted">
+              Enter your phone. Tap your name to check in, or start your 7 day free trial if you&apos;re new.
+            </p>
+
+            <form className="mt-6 space-y-5" onSubmit={runLookup}>
+              <div>
+                <label className="text-sm font-medium text-brand-ink" htmlFor="kiosk-phone">
+                  Phone number
+                </label>
+                <input
+                  id="kiosk-phone"
+                  value={phone}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    setPhoneHint(null);
+                  }}
+                  inputMode="tel"
+                  autoComplete="tel"
+                  autoFocus
+                  className={inputClass}
+                  placeholder="(555) 123-4567"
+                />
+              </div>
+
+              {phoneHint ? (
+                <p className="text-sm font-medium text-brand-red" role="alert">
+                  {phoneHint}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={searchLoading}
+                className="w-full rounded-lg bg-brand-red px-4 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-red-hover disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {searchLoading ? "Looking you up…" : "Enter"}
+              </button>
+            </form>
+
+            {searchError ? <div className="mt-3 text-sm font-medium text-red-700">{searchError}</div> : null}
+          </KioskSnakeBorderCard>
         </div>
       )}
     </main>

@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 type DvbjjLogoProps = {
   /** Use on dark backgrounds (ink header); compact SVG lockup. */
@@ -44,12 +45,12 @@ export default function DvbjjLogo({
     );
 
   return (
-    <a
+    <Link
       href="/"
       className={`inline-flex shrink-0 items-center justify-center ${focusRing} ${className}`}
       aria-label="DVBJJ — back to home"
     >
       {mark}
-    </a>
+    </Link>
   );
 }

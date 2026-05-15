@@ -4,7 +4,10 @@ import { getEffectiveStatusForMessaging } from "@/lib/statusResolver";
 /** Stable fake row for kiosk demos / local click-through without Supabase data. */
 export const KIOSK_DEMO_MEMBER_ID = "00000000-0000-4000-b000-000000000001";
 
-const DEMO_PHONE_DIGITS = "7273891434";
+/** Kiosk member demo (Jack) — use this number to hit the member check-in path without Supabase. */
+const DEMO_PHONE_DIGITS = "7275550100";
+/** Kiosk guest demo: this number always goes through the guest path (empty lookup, guest form). */
+const DEMO_GUEST_PHONE_DIGITS = "7273891434";
 const DEMO_LAST_LOWER = "wahl";
 const DEMO_FIRST = "Jack";
 const DEMO_LAST = "Wahl";
@@ -13,11 +16,33 @@ export function isKioskDemoMemberEnabled(): boolean {
   return process.env.NODE_ENV === "development" || process.env.KIOSK_DEMO_MEMBER === "true";
 }
 
+/**
+ * Guest-path phones in dev / KIOSK_DEMO_MEMBER: always includes `7273891434`, plus any extra
+ * digits from `KIOSK_DEMO_GUEST_PHONE` in `.env.local` if you need another test number.
+ */
+function isDemoGuestPhone(phone: string): boolean {
+  if (!isKioskDemoMemberEnabled()) return false;
+  const digits = normalizePhone(phone);
+  if (digits === DEMO_GUEST_PHONE_DIGITS) return true;
+  const raw = process.env.KIOSK_DEMO_GUEST_PHONE;
+  if (raw == null || String(raw).trim() === "") return false;
+  const extra = normalizePhone(String(raw));
+  return extra.length >= 4 && digits === extra;
+}
+
+/** True when this phone should follow the guest kiosk path in demo mode (empty lookup). */
+export function matchesKioskDemoGuestPath(phone: string): boolean {
+  return isDemoGuestPhone(phone);
+}
+
 export function matchesKioskDemoLookup(lastName: string, phone: string): boolean {
   if (!isKioskDemoMemberEnabled()) return false;
-  const ln = lastName.replace(/\s+/g, " ").trim().toLowerCase();
+  if (matchesKioskDemoGuestPath(phone)) return false;
   const digits = normalizePhone(phone);
-  return ln === DEMO_LAST_LOWER && digits === DEMO_PHONE_DIGITS;
+  if (digits !== DEMO_PHONE_DIGITS) return false;
+  const ln = lastName.replace(/\s+/g, " ").trim().toLowerCase();
+  if (ln.length === 0) return true;
+  return ln === DEMO_LAST_LOWER;
 }
 
 export function isKioskDemoMemberId(personId: string): boolean {

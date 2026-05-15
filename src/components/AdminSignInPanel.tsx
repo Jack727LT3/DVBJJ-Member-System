@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import DvbjjLogo from "@/components/DvbjjLogo";
+import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 
 export default function AdminSignInPanel({
   email,
@@ -36,8 +37,10 @@ export default function AdminSignInPanel({
       </header>
 
       <div className="flex flex-1 items-center justify-center px-5 py-10 sm:py-14">
-        <div className="w-full max-w-[420px] overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-[0_24px_80px_-20px_rgba(12,12,14,0.25)]">
-          <div className="border-l-4 border-brand-red px-8 pb-10 pt-9 sm:px-10 sm:pt-10">
+        <KioskSnakeBorderCard
+          className="w-full max-w-[420px] shadow-[0_24px_80px_-20px_rgba(12,12,14,0.25)]"
+          innerClassName="px-8 pb-10 pt-9 sm:px-10 sm:pt-10"
+        >
             <div className="flex justify-center border-b border-black/[0.06] pb-8">
               <DvbjjLogo variant="on-light" size="hero" />
             </div>
@@ -95,8 +98,7 @@ export default function AdminSignInPanel({
                 Back to Member Check In
               </Link>
             </p>
-          </div>
-        </div>
+        </KioskSnakeBorderCard>
       </div>
     </main>
   );
