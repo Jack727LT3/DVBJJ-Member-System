@@ -411,7 +411,7 @@ export default function KioskHome() {
               href="/mvp"
               className="text-[11px] font-medium text-[#a8a6a3] underline decoration-[#a8a6a3]/50 underline-offset-4 hover:text-[#f4f2ee]"
             >
-              Staff dashboard
+              Staff Dashboard
             </Link>
           </div>
         </div>
