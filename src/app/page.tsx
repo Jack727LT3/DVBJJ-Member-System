@@ -408,7 +408,7 @@ export default function KioskHome() {
           <div className="flex flex-col items-end gap-2 sm:text-right">
             <div className="text-xs text-[#a8a6a3]">{headerStatus}</div>
             <Link
-              href="/mvp"
+              href="/dashboard"
               className="text-[11px] font-medium text-[#a8a6a3] underline decoration-[#a8a6a3]/50 underline-offset-4 hover:text-[#f4f2ee]"
             >
               Staff Dashboard

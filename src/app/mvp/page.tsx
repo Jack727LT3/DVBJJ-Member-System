@@ -1,9 +1,6 @@
-import StaffDashboardView from "@/components/mvp/StaffDashboardView";
-import { getStaffDashboard } from "@/lib/staffDashboard";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function MvpStaffPage() {
-  const data = await getStaffDashboard();
-  return <StaffDashboardView data={data} />;
+/** Legacy URL — staff dashboard moved to /dashboard */
+export default function MvpRedirectPage() {
+  redirect("/dashboard");
 }

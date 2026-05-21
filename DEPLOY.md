@@ -5,7 +5,7 @@ The app is a single Next.js site:
 | URL | Use |
 |-----|-----|
 | `/` | Member check-in kiosk (iPad / front desk) |
-| `/mvp` | Staff dashboard (username `dvbjj90`, password `dvbjj1of1`) |
+| `/dashboard` | Staff dashboard (username `dvbjj90`, password `dvbjj1of1`) |
 | `/admin` | Full admin (Supabase email magic link) |
 
 Recommended host: **[Vercel](https://vercel.com)** (built for Next.js, free tier is enough to start).
@@ -59,7 +59,7 @@ Add env vars in the Vercel dashboard first, or when prompted during `vercel link
 ## 4. After deploy — gym checklist
 
 - [ ] Open the site on the iPad → bookmark the home page (`/`) for check-in.
-- [ ] Staff use the same site → **Staff dashboard** → sign in at `/mvp`.
+- [ ] Staff use the same site → **Staff Dashboard** → sign in at `/dashboard`.
 - [ ] Confirm Supabase is connected (no yellow “Sample data” banner on staff dashboard).
 - [ ] Test a real member phone check-in and staff notifications.
 
