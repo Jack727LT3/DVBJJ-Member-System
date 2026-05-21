@@ -1,11 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DvbjjLogo from "@/components/DvbjjLogo";
 import OnboardingLeadsTab from "@/components/mvp/OnboardingLeadsTab";
+import StaffLoginPanel from "@/components/mvp/StaffLoginPanel";
+import StaffNotificationBell from "@/components/mvp/StaffNotificationBell";
 import TodayMembersTab from "@/components/mvp/TodayMembersTab";
-import { sortMembersLeastRecentFirst, type StaffDashboard, type StaffMemberRow } from "@/lib/staffDashboard";
+import {
+  sortMembersLeastRecentFirst,
+  sortTrialsByUrgency,
+  type StaffDashboard,
+  type StaffMemberRow,
+} from "@/lib/staffDashboard";
+import { clearStaffAuthentication, isStaffAuthenticated } from "@/lib/staffAuth";
+import { clearDismissedNotifications } from "@/lib/staffNotificationDismissals";
+import { buildStaffNotifications, type StaffNotification } from "@/lib/staffNotifications";
 
 type StaffTab = "today" | "onboarding";
 
@@ -14,11 +24,50 @@ type StaffDashboardClientProps = {
 };
 
 export default function StaffDashboardClient({ data }: StaffDashboardClientProps) {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [activeTab, setActiveTab] = useState<StaffTab>("today");
   const [members, setMembers] = useState<StaffMemberRow[]>(() => data.members);
+  const [trials, setTrials] = useState(() => sortTrialsByUrgency(data.trials));
+
+  useEffect(() => {
+    setAuthenticated(isStaffAuthenticated());
+    setAuthChecked(true);
+  }, []);
+
+  const notifications = useMemo(
+    () => buildStaffNotifications({ members, trials }),
+    [members, trials]
+  );
 
   function handleMemberEnrolled(member: StaffMemberRow) {
     setMembers((prev) => sortMembersLeastRecentFirst([member, ...prev.filter((m) => m.id !== member.id)]));
+  }
+
+  function handleNotificationSelect(notification: StaffNotification) {
+    if (notification.kind === "trial_ended") {
+      setActiveTab("onboarding");
+      return;
+    }
+    setActiveTab("today");
+  }
+
+  function handleSignOut() {
+    clearStaffAuthentication();
+    clearDismissedNotifications();
+    setAuthenticated(false);
+  }
+
+  if (!authChecked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-brand-cream text-sm text-brand-muted">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!authenticated) {
+    return <StaffLoginPanel onAuthenticated={() => setAuthenticated(true)} />;
   }
 
   return (
@@ -33,12 +82,27 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
               <p className="text-sm font-medium text-[#f4f2ee]">Member & Activity Dashboard</p>
             </div>
           </div>
-          <Link
-            href="/"
-            className="text-sm font-medium text-brand-red underline decoration-brand-red/40 underline-offset-4 hover:text-[#f4d4d8]"
-          >
-            ← Back To Kiosk
-          </Link>
+          <div className="flex items-center justify-between gap-4 sm:justify-end">
+            <StaffNotificationBell
+              notifications={notifications}
+              onNotificationSelect={handleNotificationSelect}
+            />
+            <div className="flex flex-col items-end gap-1">
+              <Link
+                href="/"
+                className="text-sm font-medium text-brand-red underline decoration-brand-red/40 underline-offset-4 hover:text-[#f4d4d8]"
+              >
+                ← Back To Kiosk
+              </Link>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="text-[11px] font-medium text-[#a8a6a3] underline decoration-[#a8a6a3]/40 underline-offset-2 hover:text-[#f4f2ee]"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -85,7 +149,12 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
         {activeTab === "today" ? (
           <TodayMembersTab data={data} members={members} onMembersChange={setMembers} />
         ) : (
-          <OnboardingLeadsTab data={data} onMemberEnrolled={handleMemberEnrolled} />
+          <OnboardingLeadsTab
+            data={data}
+            trials={trials}
+            onTrialsChange={setTrials}
+            onMemberEnrolled={handleMemberEnrolled}
+          />
         )}
 
         <footer className="mt-10 space-y-3 border-t border-black/[0.06] pt-8 text-center text-xs text-brand-muted">
@@ -99,7 +168,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
               Full Admin (Search, Flags, Notes)
             </Link>
           </div>
-          <p className="text-black/40">Read-only staff view. Protect this URL on production if needed.</p>
+          <p className="text-black/40">Staff dashboard requires sign-in on this device.</p>
         </footer>
       </div>
     </div>

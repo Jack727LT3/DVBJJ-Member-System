@@ -134,6 +134,15 @@ function demoDateYearsAgo(years: number, month = 6, day = 15): string {
   return `${y}-${m}-${d}`;
 }
 
+/** Demo member with a birthday on the current calendar day (local). */
+function demoBirthdayToday(birthYear = 1992): string {
+  const now = new Date();
+  const y = birthYear;
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function defaultDemoDateOfBirth(memberId: string, ageGroup: MemberAgeGroup): string {
   const n = Number.parseInt(memberId.replace(/\D/g, ""), 10) || 1;
   if (ageGroup === "child") {
@@ -212,6 +221,7 @@ const DEMO_MEMBERS_CORE: StaffMemberRow[] = [
     monthlyPayment: 119,
     daysSinceVisit: 2,
     totalVisits: 210,
+    dateOfBirth: demoBirthdayToday(1992),
   }),
   makeDemoMember("m4", "Taylor", "Reed", "7275553401", {
     beltColor: "White",
@@ -274,7 +284,7 @@ const DEMO: StaffDashboard = {
     inactiveMembers7Days: 7,
     trialsExpiringSoon: 1,
     memberCount: 18,
-    trialCount: 3,
+    trialCount: 4,
     guestCount: 3,
     leadCount: 6,
   },
@@ -306,6 +316,23 @@ const DEMO: StaffDashboard = {
   ],
   members: DEMO_MEMBERS_CORE,
   trials: [
+    {
+      id: "t5",
+      firstName: "Dana",
+      lastName: "Castillo",
+      phone: "7275553509",
+      email: "dana.castillo@example.com",
+      trialStartDate: new Date(Date.now() - 14 * 86400000).toISOString(),
+      trialEndDate: new Date(Date.now() - 3 * 86400000).toISOString(),
+      daysRemaining: -3,
+      notes: [
+        {
+          id: "tn-expired-1",
+          body: "Trial ended — requested callback about family plan.",
+          createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+        },
+      ],
+    },
     {
       id: "t1",
       firstName: "Jordan",

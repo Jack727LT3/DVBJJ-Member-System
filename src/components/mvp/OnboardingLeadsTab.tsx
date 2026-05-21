@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type Dispatch, type SetStateAction, useMemo, useState } from "react";
 import CollapsibleSection from "@/components/mvp/CollapsibleSection";
 import OutOfStoreLeadsTab from "@/components/mvp/OutOfStoreLeadsTab";
 import GuestProfilePanel from "@/components/mvp/GuestProfilePanel";
@@ -20,11 +20,17 @@ type SectionKey = "trials" | "outOfStore" | "guests" | "inGym";
 
 type OnboardingLeadsTabProps = {
   data: StaffDashboard;
+  trials: StaffTrialRow[];
+  onTrialsChange: Dispatch<SetStateAction<StaffTrialRow[]>>;
   onMemberEnrolled?: (member: StaffMemberRow) => void;
 };
 
-export default function OnboardingLeadsTab({ data, onMemberEnrolled }: OnboardingLeadsTabProps) {
-  const [trials, setTrials] = useState(() => sortTrialsByUrgency(data.trials));
+export default function OnboardingLeadsTab({
+  data,
+  trials,
+  onTrialsChange,
+  onMemberEnrolled,
+}: OnboardingLeadsTabProps) {
   const [guests, setGuests] = useState(data.guests);
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     trials: true,
@@ -54,7 +60,7 @@ export default function OnboardingLeadsTab({ data, onMemberEnrolled }: Onboardin
   }
 
   function handleTrialCompleted(trial: StaffTrialRow) {
-    setTrials((prev) => prev.filter((t) => t.id !== trial.id));
+    onTrialsChange((prev) => prev.filter((t) => t.id !== trial.id));
     setGuests((prev) => [
       {
         id: trial.id,
@@ -280,7 +286,7 @@ export default function OnboardingLeadsTab({ data, onMemberEnrolled }: Onboardin
             setContactTrialId(null);
           }}
           onTrialUpdate={(updated) => {
-            setTrials((prev) => sortTrialsByUrgency(prev.map((t) => (t.id === updated.id ? updated : t))));
+            onTrialsChange((prev) => sortTrialsByUrgency(prev.map((t) => (t.id === updated.id ? updated : t))));
           }}
           onTrialCompleted={handleTrialCompleted}
         />
