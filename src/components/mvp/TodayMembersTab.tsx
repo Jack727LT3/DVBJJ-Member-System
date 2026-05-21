@@ -1,6 +1,7 @@
 "use client";
 
 import { type Dispatch, type FormEvent, type SetStateAction, useMemo, useRef, useState } from "react";
+import AddMembersSection from "@/components/mvp/AddMembersSection";
 import CollapsibleSection from "@/components/mvp/CollapsibleSection";
 import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 import MemberProfilePanel from "@/components/mvp/MemberProfilePanel";
@@ -14,14 +15,19 @@ import {
   maskPhone,
 } from "@/lib/mvpShared";
 import { normalizePhone } from "@/lib/phone";
-import { isChildMember, type StaffDashboard, type StaffMemberRow } from "@/lib/staffDashboard";
+import {
+  isChildMember,
+  sortMembersLeastRecentFirst,
+  type StaffDashboard,
+  type StaffMemberRow,
+} from "@/lib/staffDashboard";
 
 const INACTIVE_MS = 7 * 24 * 60 * 60 * 1000;
 
 type DailyFilter = "today" | "flagged" | "inactive";
 type MemberSort = "alphabetical" | "belt" | "lastVisit" | "flagged" | "payment";
 type MemberAgeFilter = "all" | "adults" | "children";
-type SectionKey = "checkIns" | "allMembers" | "memberNotes";
+type SectionKey = "checkIns" | "allMembers" | "addMembers" | "memberNotes";
 
 const FILTER_LABELS: Record<DailyFilter, string> = {
   today: "Check-Ins Today",
@@ -202,6 +208,7 @@ export default function TodayMembersTab({
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     checkIns: true,
     allMembers: false,
+    addMembers: false,
     memberNotes: false,
   });
 
@@ -228,15 +235,15 @@ export default function TodayMembersTab({
   const applyFilter = (next: DailyFilter) => {
     if (filter === next) {
       setFilter(null);
-      setOpenSections({ checkIns: true, allMembers: false, memberNotes: false });
+      setOpenSections({ checkIns: true, allMembers: false, addMembers: false, memberNotes: false });
       return;
     }
     setFilter(next);
     if (next === "today") {
-      setOpenSections({ checkIns: true, allMembers: false, memberNotes: false });
+      setOpenSections({ checkIns: true, allMembers: false, addMembers: false, memberNotes: false });
     } else {
       setMemberSort(next === "flagged" ? "flagged" : "lastVisit");
-      setOpenSections({ checkIns: false, allMembers: true, memberNotes: false });
+      setOpenSections({ checkIns: false, allMembers: true, addMembers: false, memberNotes: false });
       requestAnimationFrame(() => {
         membersRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
@@ -326,7 +333,7 @@ export default function TodayMembersTab({
             type="button"
             onClick={() => {
               setFilter(null);
-              setOpenSections({ checkIns: true, allMembers: false, memberNotes: false });
+              setOpenSections({ checkIns: true, allMembers: false, addMembers: false, memberNotes: false });
             }}
             className="rounded-lg border border-black/15 bg-white px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-neutral-50"
           >
@@ -523,6 +530,15 @@ export default function TodayMembersTab({
           ) : null}
         </CollapsibleSection>
       </div>
+
+      <AddMembersSection
+        open={openSections.addMembers}
+        onToggle={() => toggleSection("addMembers")}
+        onMemberAdded={(member) => {
+          setMembers((prev) => sortMembersLeastRecentFirst([member, ...prev]));
+          setOpenSections((s) => ({ ...s, allMembers: true }));
+        }}
+      />
 
       <CollapsibleSection
         title="Add Member Note"
