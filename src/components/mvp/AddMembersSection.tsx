@@ -3,7 +3,8 @@
 import { type FormEvent, useState } from "react";
 import CollapsibleSection from "@/components/mvp/CollapsibleSection";
 import { BELT_TIERS } from "@/lib/mvpShared";
-import type { MemberAgeGroup, StaffMemberRow } from "@/lib/staffDashboard";
+import { parseMemberCsv } from "@/lib/parseMemberCsv";
+import { sortMembersLeastRecentFirst, type MemberAgeGroup, type StaffMemberRow } from "@/lib/staffDashboard";
 
 const inputClass =
   "w-full rounded-lg border border-black/10 px-3 py-2.5 text-sm outline-none focus:border-brand-red/40 focus:ring-4 focus:ring-brand-red/15";
@@ -14,9 +15,15 @@ type AddMembersSectionProps = {
   open: boolean;
   onToggle: () => void;
   onMemberAdded: (member: StaffMemberRow) => void;
+  onMembersImported: (members: StaffMemberRow[]) => void;
 };
 
-export default function AddMembersSection({ open, onToggle, onMemberAdded }: AddMembersSectionProps) {
+export default function AddMembersSection({
+  open,
+  onToggle,
+  onMemberAdded,
+  onMembersImported,
+}: AddMembersSectionProps) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -30,6 +37,7 @@ export default function AddMembersSection({ open, onToggle, onMemberAdded }: Add
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [csvImporting, setCsvImporting] = useState(false);
 
   function resetForm() {
     setFirstName("");
@@ -88,14 +96,79 @@ export default function AddMembersSection({ open, onToggle, onMemberAdded }: Add
     }
   }
 
+  async function handleCsvFile(file: File) {
+    setError(null);
+    setSuccess(null);
+    setCsvImporting(true);
+    try {
+      const text = await file.text();
+      const parsed = parseMemberCsv(text);
+      if (!parsed.ok) {
+        setError(parsed.error);
+        return;
+      }
+      const res = await fetch("/api/mvp/members/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ members: parsed.members }),
+      });
+      const json = await res.json();
+      if (!res.ok && !json.members?.length) {
+        setError(json.error ?? "CSV import failed.");
+        return;
+      }
+      const added = (json.members ?? []) as StaffMemberRow[];
+      if (added.length === 0) {
+        setError("No members were imported.");
+        return;
+      }
+      onMembersImported(added);
+      const failed = json.failed ?? 0;
+      setSuccess(
+        failed > 0
+          ? `Imported ${json.imported ?? added.length} member(s). ${failed} row(s) skipped (see error).`
+          : `Imported ${json.imported ?? added.length} member(s).`
+      );
+      if (failed > 0 && json.errors?.[0]) {
+        setError(String(json.errors[0]));
+      }
+    } catch {
+      setError("Could not read CSV file.");
+    } finally {
+      setCsvImporting(false);
+    }
+  }
+
+  const csvButton = (
+    <label className="cursor-pointer rounded-lg border border-black/15 bg-white px-3 py-2 text-xs font-medium text-brand-ink shadow-sm hover:bg-neutral-50">
+      {csvImporting ? "Importing…" : "Add CSV"}
+      <input
+        type="file"
+        accept=".csv,text/csv"
+        className="sr-only"
+        disabled={csvImporting || saving}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void handleCsvFile(f);
+          e.target.value = "";
+        }}
+      />
+    </label>
+  );
+
   return (
     <CollapsibleSection
       title="Add Members"
       subtitle="Enter member info manually — same basics as a new trial signup, plus membership details."
       open={open}
       onToggle={onToggle}
+      headerAside={csvButton}
     >
       <div className="px-5 py-4 sm:px-6 sm:py-5">
+        <p className="mb-4 text-[11px] leading-relaxed text-brand-muted">
+          CSV columns: first_name, last_name, phone, email, monthly_payment, belt_color (optional),
+          member_type (adult/child), date_of_birth (optional), parent_name, parent_phone (child only)
+        </p>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>

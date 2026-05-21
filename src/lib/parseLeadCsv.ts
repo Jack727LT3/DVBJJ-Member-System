@@ -24,7 +24,7 @@ function normalizeHeader(h: string) {
 }
 
 /** Minimal CSV parser (handles quoted fields). */
-function parseCsvRows(text: string): string[][] {
+export function parseCsvRows(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";

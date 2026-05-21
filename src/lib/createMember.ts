@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MemberAgeGroup, StaffMemberParent, StaffMemberRow } from "@/lib/staffDashboard";
 import { normalizePhone } from "@/lib/phone";
 
@@ -82,8 +83,49 @@ export function parseCreateMemberPayload(body: unknown): CreateMemberPayload | {
   };
 }
 
+export async function createMemberInDatabase(
+  supabase: SupabaseClient,
+  payload: CreateMemberPayload
+): Promise<{ ok: true; member: StaffMemberRow } | { ok: false; error: string }> {
+  const { data, error } = await supabase.rpc("mvp_create_member", {
+    p_first_name: payload.firstName,
+    p_last_name: payload.lastName,
+    p_phone: normalizePhone(payload.phone),
+    p_email: payload.email,
+    p_monthly_payment: payload.monthlyPayment,
+    p_belt_color: payload.beltColor,
+    p_member_age_group: payload.ageGroup,
+    p_date_of_birth: payload.dateOfBirth,
+    p_member_parents: payload.parents,
+  });
+  if (error) return { ok: false, error: "db_error" };
+
+  const result = data as {
+    ok: boolean;
+    error?: string;
+    member?: Parameters<typeof mapRpcMemberRow>[0];
+  };
+
+  if (!result.ok || !result.member) {
+    const code = result.error ?? "unknown";
+    const msg =
+      code === "duplicate_phone"
+        ? "A profile with this phone number already exists."
+        : code === "parent_required"
+          ? "Child members need parent or guardian info."
+          : code === "invalid_payment"
+            ? "Invalid monthly payment."
+            : code === "invalid_email"
+              ? "Invalid email."
+              : "Could not add member.";
+    return { ok: false, error: msg };
+  }
+
+  return { ok: true, member: mapRpcMemberRow(result.member) };
+}
+
 export function buildDemoMemberFromPayload(payload: CreateMemberPayload): StaffMemberRow {
-  const id = `demo-member-${Date.now()}`;
+  const id = `demo-member-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   return {
     id,
     firstName: payload.firstName,

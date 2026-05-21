@@ -535,7 +535,15 @@ export default function TodayMembersTab({
         open={openSections.addMembers}
         onToggle={() => toggleSection("addMembers")}
         onMemberAdded={(member) => {
-          setMembers((prev) => sortMembersLeastRecentFirst([member, ...prev]));
+          setMembers((prev) => sortMembersLeastRecentFirst([member, ...prev.filter((m) => m.id !== member.id)]));
+          setOpenSections((s) => ({ ...s, allMembers: true }));
+        }}
+        onMembersImported={(imported) => {
+          setMembers((prev) => {
+            const byId = new Map(prev.map((m) => [m.id, m]));
+            for (const m of imported) byId.set(m.id, m);
+            return sortMembersLeastRecentFirst([...byId.values()]);
+          });
           setOpenSections((s) => ({ ...s, allMembers: true }));
         }}
       />
