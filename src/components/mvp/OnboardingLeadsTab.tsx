@@ -70,6 +70,8 @@ export default function OnboardingLeadsTab({
         email: trial.email,
         createdAt: new Date().toISOString(),
         lastVisit: null,
+        totalVisits: 0,
+        dateOfBirth: trial.dateOfBirth,
         completedTrial: true,
         notes: trial.notes,
       },

@@ -17,7 +17,8 @@ Recommended host: **[Vercel](https://vercel.com)** (built for Next.js, free tier
 Without Supabase, the kiosk search returns no members and the staff dashboard shows **demo sample data**.
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. In the SQL editor, open `supabase/setup-all.sql`, paste the whole file, and click **Run** (one shot — all migrations).
+2. In the SQL editor, open `supabase/setup-all.sql`, paste the whole file, and click **Run** (one shot — all migrations).  
+   **Already live?** Also run `supabase/migrations/0014_flags_waivers_professors.sql` (staff flags, waiver storage, professor accounts, trial vs guest kiosk signup).
 3. In **Project Settings → API**, copy:
    - Project URL → `SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_URL`
    - `anon` `public` key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`

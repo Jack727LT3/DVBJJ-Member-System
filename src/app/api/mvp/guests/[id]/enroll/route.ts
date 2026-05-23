@@ -112,6 +112,8 @@ export async function POST(req: Request, context: RouteContext) {
       email: null as string | null,
       createdAt: new Date().toISOString(),
       lastVisit: null as string | null,
+      totalVisits: 0,
+      dateOfBirth: parsed.dateOfBirth,
       completedTrial: true,
       notes: [] as { id: string; body: string; createdAt: string }[],
     };

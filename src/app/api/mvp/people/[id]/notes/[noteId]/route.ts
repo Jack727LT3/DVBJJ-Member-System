@@ -62,3 +62,29 @@ export async function PATCH(req: Request, context: RouteContext) {
     });
   }
 }
+
+export async function DELETE(_req: Request, context: RouteContext) {
+  const { id, noteId } = await context.params;
+
+  if (isDemoPersonId(id)) {
+    return NextResponse.json({ source: "demo", ok: true });
+  }
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.rpc("mvp_delete_person_note", {
+      p_person_id: id,
+      p_note_id: noteId,
+    });
+    if (error) throw error;
+
+    const result = data as { ok: boolean };
+    if (!result.ok) {
+      return NextResponse.json({ error: "Could not delete note." }, { status: 404 });
+    }
+
+    return NextResponse.json({ source: "live", ok: true });
+  } catch {
+    return NextResponse.json({ source: "demo", ok: true });
+  }
+}

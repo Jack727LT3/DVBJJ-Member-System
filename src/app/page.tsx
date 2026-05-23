@@ -11,13 +11,14 @@ import {
 import DvbjjLogo from "@/components/DvbjjLogo";
 import KioskInteractiveWaiver from "@/components/KioskInteractiveWaiver";
 import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
+import type { WaiverSubmitPayload } from "@/lib/waiverTypes";
 
 type KioskSearchResult = {
   id: string;
   firstName: string;
   lastName: string;
   phoneMasked: string;
-  status: "lead" | "trial" | "guest" | "member";
+  status: "lead" | "trial" | "guest" | "member" | "professor";
   memberState: "active" | "delinquent" | "frozen" | "canceled" | null;
   daysLeftInTrial: number | null;
   lastCheckInAt: string | null;
@@ -27,8 +28,11 @@ type CheckInResponse = {
   messageTitle: string;
   messageBody: string;
   confirmation: { checkInLogged: boolean };
-  /** Present when the person is on a trial after check-in; days remaining until trial end. */
+  personId?: string;
   trialDaysLeft?: number | null;
+  trialStartDate?: string | null;
+  trialEndDate?: string | null;
+  status?: string;
 };
 
 type Outcome =
@@ -102,11 +106,14 @@ export default function KioskHome() {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   type FlowMode = "phoneEntry" | "profilePick" | "guestForm" | "guestWaiver" | "outcome";
+  type GuestSignupMode = "trial" | "guest";
   const [mode, setMode] = useState<FlowMode>("phoneEntry");
+  const [guestSignupMode, setGuestSignupMode] = useState<GuestSignupMode>("trial");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  /** After guest check-in API succeeds; shown on final welcome after waiver step. */
   const [pendingGuestFirstName, setPendingGuestFirstName] = useState<string | null>(null);
   const [pendingGuestTrialDaysLeft, setPendingGuestTrialDaysLeft] = useState<number | null>(null);
+  const [pendingGuestPersonId, setPendingGuestPersonId] = useState<string | null>(null);
+  const [waiverSubmitting, setWaiverSubmitting] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
 
   const [phoneHint, setPhoneHint] = useState<string | null>(null);
@@ -136,6 +143,7 @@ export default function KioskHome() {
     setOutcome(null);
     setPendingGuestFirstName(null);
     setPendingGuestTrialDaysLeft(null);
+    setPendingGuestPersonId(null);
     clearPhoneLookupState();
     clearGuestFormState();
     setSearchError(null);
@@ -256,7 +264,10 @@ export default function KioskHome() {
 
       const welcomeName = sanitizeName(r.firstName) || "there";
 
-      if (r.status === "member" && (r.memberState === "active" || r.memberState === null)) {
+      if (
+        (r.status === "member" && (r.memberState === "active" || r.memberState === null)) ||
+        r.status === "professor"
+      ) {
         setOutcome({
           kind: "active",
           firstName: welcomeName,
@@ -308,6 +319,7 @@ export default function KioskHome() {
           lastName: sanitizeName(lastNameGuest),
           phone: phoneGuest.trim(),
           email: guestEmail.trim(),
+          startTrial: guestSignupMode === "trial",
         }),
       });
 
@@ -337,6 +349,7 @@ export default function KioskHome() {
 
       setPendingGuestFirstName(welcomeFirst);
       setPendingGuestTrialDaysLeft(trialDays);
+      setPendingGuestPersonId(okBody.personId ?? null);
       setMode("guestWaiver");
     } catch {
       setSearchError(guestFailMsg);
@@ -345,17 +358,37 @@ export default function KioskHome() {
     }
   };
 
-  const completeGuestWaiver = () => {
+  const completeGuestWaiver = async (waiver: WaiverSubmitPayload) => {
+    setWaiverSubmitting(true);
+    try {
+      if (pendingGuestPersonId) {
+        await fetch("/api/kiosk/waiver", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            personId: pendingGuestPersonId,
+            ...waiver,
+          }),
+        });
+      }
+    } catch {
+      /* still allow check-in to complete */
+    } finally {
+      setWaiverSubmitting(false);
+    }
+
     const first = pendingGuestFirstName ?? "there";
-    const trialLeft = pendingGuestTrialDaysLeft;
+    const trialLeft = guestSignupMode === "trial" ? pendingGuestTrialDaysLeft : null;
     setPendingGuestFirstName(null);
     setPendingGuestTrialDaysLeft(null);
+    setPendingGuestPersonId(null);
     setOutcome({ kind: "guestWelcome", firstName: first, trialDaysLeft: trialLeft });
     setMode("outcome");
     startAutoReset();
   };
 
-  const openContinueAsGuest = () => {
+  const openSignupForm = (signupMode: GuestSignupMode) => {
+    setGuestSignupMode(signupMode);
     setFirstNameGuest("");
     setLastNameGuest("");
     setPhoneGuest(phone.trim());
@@ -388,7 +421,9 @@ export default function KioskHome() {
       : mode === "guestWaiver"
         ? "Liability waiver"
         : mode === "guestForm"
-          ? "Free trial"
+          ? guestSignupMode === "trial"
+            ? "Free trial"
+            : "Guest account"
           : mode === "profilePick"
             ? "Confirm your profile"
             : "Check In";
@@ -483,6 +518,7 @@ export default function KioskHome() {
                 phone={phoneGuest}
                 email={guestEmail}
                 onComplete={completeGuestWaiver}
+                submitting={waiverSubmitting}
               />
             </KioskSnakeBorderCard>
           </div>
@@ -495,9 +531,12 @@ export default function KioskHome() {
                 <DvbjjLogo variant="on-light" size="hero" />
               </div>
 
-              <h1 className="mt-6 text-xl font-semibold tracking-tight text-brand-ink">Start your 7 day free trial</h1>
+              <h1 className="mt-6 text-xl font-semibold tracking-tight text-brand-ink">
+                {guestSignupMode === "trial" ? "Start your 7 day free trial" : "Create your guest account"}
+              </h1>
               <p className="mt-2 text-sm leading-relaxed text-brand-muted">
-                Enter your information, then tap <span className="font-medium text-brand-ink">Enter</span> to check in.
+                Enter your information, then tap <span className="font-medium text-brand-ink">Enter</span> to check in
+                {guestSignupMode === "trial" ? " and begin your trial." : "."}
               </p>
 
               <form className="mt-6 space-y-5" onSubmit={submitGuestCheckIn}>
@@ -603,14 +642,23 @@ export default function KioskHome() {
               {showNotFoundContinueGuest ? (
                 <div className="mt-6 space-y-2">
                   <p className="text-sm font-medium text-brand-ink">No profile found for this number.</p>
-                  <p className="text-sm text-brand-muted">New here? Use the same number to start your free trial.</p>
-                  <button
-                    type="button"
-                    onClick={openContinueAsGuest}
-                    className="mt-1 w-full rounded-lg border border-black/20 bg-white px-4 py-3 text-base font-medium text-brand-ink shadow-sm transition-colors hover:border-black/35 hover:bg-black/[0.02]"
-                  >
-                    Start your 7 day free trial now?
-                  </button>
+                  <p className="text-sm text-brand-muted">New here? Choose how you&apos;d like to sign up.</p>
+                  <div className="mt-2 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => openSignupForm("trial")}
+                      className="w-full rounded-lg border border-black/20 bg-white px-4 py-3 text-base font-medium text-brand-ink shadow-sm transition-colors hover:border-black/35 hover:bg-black/[0.02]"
+                    >
+                      Start your 7 day free trial
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openSignupForm("guest")}
+                      className="w-full rounded-lg border border-dashed border-black/25 bg-neutral-50/80 px-4 py-3 text-base font-medium text-brand-muted shadow-sm transition-colors hover:border-black/35 hover:text-brand-ink"
+                    >
+                      Create a guest account (no trial)
+                    </button>
+                  </div>
                 </div>
               ) : null}
 
@@ -636,11 +684,13 @@ export default function KioskHome() {
                           <div className="mt-1.5 text-xs font-medium uppercase tracking-wide text-brand-muted">
                             {r.status === "member"
                               ? "Member"
-                              : r.status === "trial"
-                                ? "Trial"
-                                : r.status === "guest"
-                                  ? "Guest"
-                                  : "Lead"}
+                              : r.status === "professor"
+                                ? "Coach"
+                                : r.status === "trial"
+                                  ? "Trial"
+                                  : r.status === "guest"
+                                    ? "Guest"
+                                    : "Lead"}
                           </div>
                         </div>
                       </button>

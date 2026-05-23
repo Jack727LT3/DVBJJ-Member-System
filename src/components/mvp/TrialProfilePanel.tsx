@@ -2,9 +2,11 @@
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
-import { formatDate, formatTrialDaysLeft, fullName } from "@/lib/mvpShared";
+import PersonNotesSection from "@/components/mvp/PersonNotesSection";
+import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
+import { formatDate, formatMemberAge, formatTrialDaysLeft, fullName } from "@/lib/mvpShared";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
-import { isTrialExpired, type StaffMemberNote, type StaffTrialRow } from "@/lib/staffDashboard";
+import { isTrialExpired, type StaffTrialRow } from "@/lib/staffDashboard";
 
 const inputClass =
   "w-full rounded-lg border border-black/10 px-3 py-2 text-sm outline-none focus:border-brand-red/40 focus:ring-4 focus:ring-brand-red/15";
@@ -25,13 +27,14 @@ export default function TrialProfilePanel({
   contactMode = false,
 }: TrialProfilePanelProps) {
   const phoneRef = useRef<HTMLAnchorElement>(null);
-  const [noteBody, setNoteBody] = useState("");
-  const [noteSaving, setNoteSaving] = useState(false);
-  const [noteError, setNoteError] = useState<string | null>(null);
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [editBody, setEditBody] = useState("");
+  const [editing, setEditing] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState(trial.firstName);
+  const [lastName, setLastName] = useState(trial.lastName);
+  const [phone, setPhone] = useState(trial.phone);
+  const [email, setEmail] = useState(trial.email ?? "");
+  const [dateOfBirth, setDateOfBirth] = useState(trial.dateOfBirth ?? "");
   const [contacted, setContacted] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
@@ -53,71 +56,37 @@ export default function TrialProfilePanel({
     return () => window.clearTimeout(t);
   }, [contactMode, trial.id]);
 
-  async function submitNote(e: FormEvent) {
+  async function saveProfile(e: FormEvent) {
     e.preventDefault();
-    setNoteError(null);
-    if (!noteBody.trim()) {
-      setNoteError("Enter a note first.");
-      return;
-    }
-    setNoteSaving(true);
-    try {
-      const res = await fetch(`/api/mvp/people/${trial.id}/notes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: noteBody.trim() }),
-      });
-      const json = await res.json();
-      if (!res.ok && !json.note) {
-        setNoteError(json.error ?? "Could not save note.");
-        return;
-      }
-      const note = json.note as StaffMemberNote;
-      onTrialUpdate({ ...trial, notes: [note, ...trial.notes] });
-      setNoteBody("");
-    } catch {
-      setNoteError("Something went wrong.");
-    } finally {
-      setNoteSaving(false);
-    }
-  }
-
-  function startEditNote(note: StaffMemberNote) {
-    setEditingNoteId(note.id);
-    setEditBody(note.body);
     setEditError(null);
-  }
-
-  function cancelEditNote() {
-    setEditingNoteId(null);
-    setEditBody("");
-    setEditError(null);
-  }
-
-  async function saveEditNote(noteId: string) {
-    setEditError(null);
-    if (!editBody.trim()) {
-      setEditError("Note cannot be empty.");
-      return;
-    }
     setEditSaving(true);
     try {
-      const res = await fetch(`/api/mvp/people/${trial.id}/notes/${noteId}`, {
+      const res = await fetch(`/api/mvp/people/${trial.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: editBody.trim() }),
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          phone,
+          email: email.trim() || null,
+          dateOfBirth: dateOfBirth.trim() || null,
+        }),
       });
       const json = await res.json();
-      if (!res.ok && !json.note) {
-        setEditError(json.error ?? "Could not update note.");
+      if (!res.ok && !json.person) {
+        setEditError(json.error ?? "Could not save.");
         return;
       }
-      const updated = json.note as StaffMemberNote;
+      const p = json.person as Partial<typeof trial>;
       onTrialUpdate({
         ...trial,
-        notes: trial.notes.map((n) => (n.id === noteId ? { ...n, body: updated.body } : n)),
+        firstName: p.firstName ?? firstName,
+        lastName: p.lastName ?? lastName,
+        phone: p.phone ?? phone,
+        email: p.email !== undefined ? p.email : email.trim() || null,
+        dateOfBirth: p.dateOfBirth !== undefined ? p.dateOfBirth : dateOfBirth.trim() || null,
       });
-      cancelEditNote();
+      setEditing(false);
     } catch {
       setEditError("Something went wrong.");
     } finally {
@@ -182,13 +151,24 @@ export default function TrialProfilePanel({
                   </span>
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="shrink-0 rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-muted hover:text-brand-ink"
-              >
-                Close
-              </button>
+              <div className="flex shrink-0 flex-col gap-2">
+                {!editing ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-ink"
+                  >
+                    Edit
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-muted hover:text-brand-ink"
+                >
+                  Close
+                </button>
+              </div>
             </div>
 
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
@@ -220,96 +200,49 @@ export default function TrialProfilePanel({
                   )}
                 </dd>
               </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Age</dt>
+                <dd className="mt-0.5 text-sm text-brand-ink">{formatMemberAge(trial.dateOfBirth)}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">DOB</dt>
+                <dd className="mt-0.5 text-sm text-brand-ink">
+                  {trial.dateOfBirth ? formatDate(trial.dateOfBirth) : "—"}
+                </dd>
+              </div>
             </dl>
           </div>
 
-
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-            <h3 className="text-sm font-semibold text-brand-ink">
-              Notes {trial.notes.length > 0 ? `(${trial.notes.length})` : ""}
-            </h3>
-            {trial.notes.length === 0 ? (
-              <p className="mt-1 text-sm text-brand-muted">No notes yet.</p>
+            {editing ? (
+              <form className="space-y-3" onSubmit={saveProfile}>
+                <input value={firstName} onChange={(e) => setFirstName(e.target.value)} className={inputClass} placeholder="First name" required />
+                <input value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputClass} placeholder="Last name" required />
+                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} placeholder="Phone" required />
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} placeholder="Email" />
+                <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className={inputClass} />
+                {editError ? <p className="text-xs text-red-700">{editError}</p> : null}
+                <div className="flex gap-2">
+                  <button type="submit" disabled={editSaving} className="rounded-lg bg-brand-red px-3 py-1.5 text-sm font-semibold text-white">
+                    {editSaving ? "Saving…" : "Save"}
+                  </button>
+                  <button type="button" onClick={() => setEditing(false)} className="rounded-lg border px-3 py-1.5 text-sm">
+                    Cancel
+                  </button>
+                </div>
+              </form>
             ) : (
-              <ul
-                className={`mt-2 space-y-2 ${showContactComplete ? "max-h-28 overflow-y-auto" : "max-h-40 overflow-y-auto"}`}
-              >
-                {trial.notes.map((n) => (
-                  <li
-                    key={n.id}
-                    className={`relative rounded-lg border border-black/[0.06] bg-neutral-50/80 p-2 text-sm ${
-                      editingNoteId === n.id ? "" : "pr-12"
-                    }`}
-                  >
-                    {editingNoteId !== n.id ? (
-                      <button
-                        type="button"
-                        onClick={() => startEditNote(n)}
-                        disabled={editingNoteId !== null}
-                        className="absolute right-1.5 top-1.5 rounded border border-black/10 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-brand-muted hover:text-brand-ink disabled:opacity-50"
-                      >
-                        Edit
-                      </button>
-                    ) : null}
-                    {editingNoteId === n.id ? (
-                      <form
-                        className="space-y-1.5"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          void saveEditNote(n.id);
-                        }}
-                      >
-                        <textarea
-                          value={editBody}
-                          onChange={(e) => setEditBody(e.target.value)}
-                          rows={2}
-                          className={inputClass}
-                          autoFocus
-                        />
-                        {editError ? <p className="text-xs text-red-700">{editError}</p> : null}
-                        <div className="flex gap-2">
-                          <button
-                            type="submit"
-                            disabled={editSaving}
-                            className="rounded bg-brand-red px-2 py-0.5 text-xs font-semibold text-white"
-                          >
-                            Save
-                          </button>
-                          <button type="button" onClick={cancelEditNote} className="rounded border border-black/10 px-2 py-0.5 text-xs">
-                            Cancel
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <>
-                        <p className="text-brand-ink">{n.body}</p>
-                        <p className="mt-0.5 text-[11px] text-black/45">{formatDate(n.createdAt)}</p>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <>
+                <WaiverHistorySection personId={trial.id} />
+                <PersonNotesSection
+                  personId={trial.id}
+                  notes={trial.notes}
+                  notesApiBase="/api/mvp/people"
+                  onNotesChange={(notes) => onTrialUpdate({ ...trial, notes })}
+                  compact={showContactComplete}
+                />
+              </>
             )}
-
-            <form className="mt-3 space-y-2" onSubmit={submitNote}>
-              <textarea
-                id="trial-profile-note"
-                value={noteBody}
-                onChange={(e) => setNoteBody(e.target.value)}
-                rows={showContactComplete ? 1 : 2}
-                className={inputClass}
-                placeholder="Add a note…"
-                aria-label="Add note"
-              />
-              {noteError ? <p className="text-xs text-red-700">{noteError}</p> : null}
-              <button
-                type="submit"
-                disabled={noteSaving}
-                className="rounded-lg bg-brand-red px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-red-hover disabled:opacity-55"
-              >
-                {noteSaving ? "Saving…" : "Save Note"}
-              </button>
-            </form>
           </div>
 
           {showContactComplete ? (

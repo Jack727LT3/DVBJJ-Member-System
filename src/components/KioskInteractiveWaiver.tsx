@@ -1,10 +1,11 @@
 "use client";
 
 import { format } from "date-fns";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import DvbjjLogo from "@/components/DvbjjLogo";
-import SignaturePad from "@/components/SignaturePad";
+import SignaturePad, { type SignaturePadHandle } from "@/components/SignaturePad";
 import { WAIVER_NOTICE, WAIVER_PARAGRAPHS, WAIVER_TITLE } from "@/lib/waiverCopy";
+import type { WaiverSubmitPayload } from "@/lib/waiverTypes";
 
 function sanitizeDisplay(first: string, last: string) {
   const f = first.replace(/\s+/g, " ").trim();
@@ -35,7 +36,8 @@ type KioskInteractiveWaiverProps = {
   lastName: string;
   phone: string;
   email: string;
-  onComplete: () => void;
+  onComplete: (payload: WaiverSubmitPayload) => void | Promise<void>;
+  submitting?: boolean;
 };
 
 export default function KioskInteractiveWaiver({
@@ -44,6 +46,7 @@ export default function KioskInteractiveWaiver({
   phone,
   email,
   onComplete,
+  submitting = false,
 }: KioskInteractiveWaiverProps) {
   const fullName = useMemo(() => sanitizeDisplay(firstName, lastName), [firstName, lastName]);
 
@@ -52,6 +55,9 @@ export default function KioskInteractiveWaiver({
   const [parentSigEmpty, setParentSigEmpty] = useState(true);
   const [parentName, setParentName] = useState("");
   const [parentConsentDate, setParentConsentDate] = useState("");
+
+  const participantPadRef = useRef<SignaturePadHandle>(null);
+  const parentPadRef = useRef<SignaturePadHandle>(null);
 
   const age = ageFromDobYmd(dob);
   const isMinor = age !== null && age < 18;
@@ -64,6 +70,20 @@ export default function KioskInteractiveWaiver({
     age !== null &&
     !participantSigEmpty &&
     (isAdult || (isMinor && parentName.trim().length > 0 && !parentSigEmpty && parentConsentDate.length > 0));
+
+  const handleContinue = () => {
+    const participantSignature = participantPadRef.current?.getDataUrl();
+    if (!participantSignature || !dob) return;
+
+    const payload: WaiverSubmitPayload = {
+      dateOfBirth: dob,
+      participantSignature,
+      parentName: isMinor ? parentName.trim() : null,
+      parentSignature: isMinor ? parentPadRef.current?.getDataUrl() ?? null : null,
+      parentConsentDate: isMinor ? parentConsentDate : null,
+    };
+    void onComplete(payload);
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -149,6 +169,7 @@ export default function KioskInteractiveWaiver({
 
         <div className="mt-6">
           <SignaturePad
+            ref={participantPadRef}
             label="Participant’s signature *"
             onEmptyChange={setParticipantSigEmpty}
             disabled={!dob || age === null}
@@ -191,7 +212,7 @@ export default function KioskInteractiveWaiver({
                   autoComplete="name"
                 />
               </div>
-              <SignaturePad label="Parent / guardian signature *" onEmptyChange={setParentSigEmpty} />
+              <SignaturePad ref={parentPadRef} label="Parent / guardian signature *" onEmptyChange={setParentSigEmpty} />
               <div>
                 <label className="text-sm font-medium text-brand-ink" htmlFor="waiver-parent-date">
                   Date <span className="text-brand-red">*</span>
@@ -218,11 +239,11 @@ export default function KioskInteractiveWaiver({
       <div className="shrink-0 border-t border-black/[0.06] bg-white px-6 py-4 sm:px-8">
         <button
           type="button"
-          disabled={!canContinue}
-          onClick={onComplete}
+          disabled={!canContinue || submitting}
+          onClick={handleContinue}
           className="w-full rounded-lg bg-brand-red px-4 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-red-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Continue
+          {submitting ? "Saving…" : "Continue"}
         </button>
         {!canContinue ? (
           <p className="mt-2 text-center text-xs text-brand-muted">

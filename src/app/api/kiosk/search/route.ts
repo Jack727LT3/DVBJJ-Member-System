@@ -22,7 +22,7 @@ type PersonSearchRow = {
   first_name: string;
   last_name: string;
   phone: string;
-  status: "lead" | "trial" | "guest" | "member";
+  status: "lead" | "trial" | "guest" | "member" | "professor";
   member_state: "active" | "delinquent" | "frozen" | "canceled" | null;
   trial_end_date: string | null;
   last_check_in: string | null;

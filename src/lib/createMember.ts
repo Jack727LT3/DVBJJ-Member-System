@@ -142,6 +142,8 @@ export function buildDemoMemberFromPayload(payload: CreateMemberPayload): StaffM
     dateOfBirth: payload.dateOfBirth,
     parents: payload.parents,
     notes: [],
+    staffFlagType: null,
+    staffFlagOther: null,
   };
 }
 
@@ -160,6 +162,8 @@ export function mapRpcMemberRow(raw: {
   member_age_group?: string | null;
   member_parents?: { name: string; phone: string }[] | null;
   date_of_birth?: string | null;
+  staff_flag_type?: string | null;
+  staff_flag_other?: string | null;
   notes?: { id: string; body: string; created_at: string }[] | null;
 }): StaffMemberRow {
   return {
@@ -184,5 +188,12 @@ export function mapRpcMemberRow(raw: {
       body: n.body,
       createdAt: n.created_at,
     })),
+    staffFlagType:
+      raw.staff_flag_type === "missed_payment" ||
+      raw.staff_flag_type === "absent_week_plus" ||
+      raw.staff_flag_type === "other"
+        ? raw.staff_flag_type
+        : null,
+    staffFlagOther: raw.staff_flag_other ?? null,
   };
 }

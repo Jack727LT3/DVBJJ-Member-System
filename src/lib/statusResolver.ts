@@ -1,4 +1,4 @@
-export type PersonStatus = "lead" | "trial" | "guest" | "member";
+export type PersonStatus = "lead" | "trial" | "guest" | "member" | "professor";
 /** Stored in DB; staff-facing label for `delinquent` is “flagged” (billing / payment issues). */
 export type MemberState = "active" | "delinquent" | "frozen" | "canceled" | null;
 
@@ -58,6 +58,10 @@ export function getEffectiveStatusForMessaging(
     const daysAgo =
       lastCheckInMs === null ? undefined : Math.max(0, Math.floor((now.getTime() - lastCheckInMs) / MS_PER_DAY));
     return { status: "member", member_state: person.member_state, daysAgo };
+  }
+
+  if (person.status === "professor") {
+    return { status: "professor", member_state: null };
   }
 
   return { status: person.status, member_state: null };

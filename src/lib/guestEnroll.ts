@@ -28,5 +28,7 @@ export function buildMemberFromGuestEnroll(
     dateOfBirth: payload.dateOfBirth,
     parents: payload.parents,
     notes: guest.notes,
+    staffFlagType: null,
+    staffFlagOther: null,
   };
 }

@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+
+export type SignaturePadHandle = {
+  getDataUrl: () => string | null;
+};
 
 type SignaturePadProps = {
   label: string;
@@ -12,13 +16,15 @@ type SignaturePadProps = {
   onEmptyChange?: (empty: boolean) => void;
 };
 
-export default function SignaturePad({
+const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(function SignaturePad(
+{
   label,
   disabled,
   className = "",
   disabledHint,
   onEmptyChange,
-}: SignaturePadProps) {
+},
+ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const last = useRef<{ x: number; y: number } | null>(null);
@@ -133,6 +139,19 @@ export default function SignaturePad({
     notifyEmpty(true);
   };
 
+  useImperativeHandle(ref, () => ({
+    getDataUrl: () => {
+      if (!hasInk) return null;
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      try {
+        return canvas.toDataURL("image/png");
+      } catch {
+        return null;
+      }
+    },
+  }));
+
   return (
     <div className={className}>
       <div className="flex items-center justify-between gap-2">
@@ -178,4 +197,6 @@ export default function SignaturePad({
       </p>
     </div>
   );
-}
+});
+
+export default SignaturePad;

@@ -2,6 +2,8 @@
 
 import { type Dispatch, type FormEvent, type SetStateAction, useMemo, useRef, useState } from "react";
 import AddMembersSection from "@/components/mvp/AddMembersSection";
+import AddProfessorsSection from "@/components/mvp/AddProfessorsSection";
+import { isStaffFlaggedMember } from "@/lib/staffFlags";
 import CollapsibleSection from "@/components/mvp/CollapsibleSection";
 import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 import MemberProfilePanel from "@/components/mvp/MemberProfilePanel";
@@ -27,7 +29,7 @@ const INACTIVE_MS = 7 * 24 * 60 * 60 * 1000;
 type DailyFilter = "today" | "flagged" | "inactive";
 type MemberSort = "alphabetical" | "belt" | "lastVisit" | "flagged" | "payment";
 type MemberAgeFilter = "all" | "adults" | "children";
-type SectionKey = "checkIns" | "allMembers" | "addMembers" | "memberNotes";
+type SectionKey = "checkIns" | "allMembers" | "addMembers" | "addProfessors" | "memberNotes";
 
 const FILTER_LABELS: Record<DailyFilter, string> = {
   today: "Check-Ins Today",
@@ -68,7 +70,7 @@ function startOfUtcDay(d = new Date()) {
 }
 
 function isFlaggedMember(m: StaffMemberRow) {
-  return Boolean(m.memberState && m.memberState !== "active");
+  return isStaffFlaggedMember(m);
 }
 
 function isInactiveMember(m: StaffMemberRow) {
@@ -76,7 +78,12 @@ function isInactiveMember(m: StaffMemberRow) {
   return Date.now() - new Date(m.lastVisit).getTime() >= INACTIVE_MS;
 }
 
-function memberStateLabel(state: StaffMemberRow["memberState"]) {
+function memberStateLabel(m: StaffMemberRow) {
+  const flag = m.staffFlagType;
+  if (flag === "missed_payment") return "Flagged · Missed payment";
+  if (flag === "absent_week_plus") return "Flagged · Absent 1 week+";
+  if (flag === "other") return m.staffFlagOther ? `Flagged · ${m.staffFlagOther}` : "Flagged · Other";
+  const state = m.memberState;
   if (state === "active" || state === null) return "Active";
   if (state === "delinquent") return "Flagged · Billing";
   if (state === "frozen") return "Frozen";
@@ -209,6 +216,7 @@ export default function TodayMembersTab({
     checkIns: true,
     allMembers: false,
     addMembers: false,
+    addProfessors: false,
     memberNotes: false,
   });
 
@@ -235,15 +243,15 @@ export default function TodayMembersTab({
   const applyFilter = (next: DailyFilter) => {
     if (filter === next) {
       setFilter(null);
-      setOpenSections({ checkIns: true, allMembers: false, addMembers: false, memberNotes: false });
+      setOpenSections({ checkIns: true, allMembers: false, addMembers: false, addProfessors: false, memberNotes: false });
       return;
     }
     setFilter(next);
     if (next === "today") {
-      setOpenSections({ checkIns: true, allMembers: false, addMembers: false, memberNotes: false });
+      setOpenSections({ checkIns: true, allMembers: false, addMembers: false, addProfessors: false, memberNotes: false });
     } else {
       setMemberSort(next === "flagged" ? "flagged" : "lastVisit");
-      setOpenSections({ checkIns: false, allMembers: true, addMembers: false, memberNotes: false });
+      setOpenSections({ checkIns: false, allMembers: true, addMembers: false, addProfessors: false, memberNotes: false });
       requestAnimationFrame(() => {
         membersRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
@@ -333,7 +341,7 @@ export default function TodayMembersTab({
             type="button"
             onClick={() => {
               setFilter(null);
-              setOpenSections({ checkIns: true, allMembers: false, addMembers: false, memberNotes: false });
+              setOpenSections({ checkIns: true, allMembers: false, addMembers: false, addProfessors: false, memberNotes: false });
             }}
             className="rounded-lg border border-black/15 bg-white px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-neutral-50"
           >
@@ -514,7 +522,7 @@ export default function TodayMembersTab({
                       <td className="px-4 py-3 tabular-nums text-brand-muted">{formatMoney(m.monthlyPayment)}</td>
                       <td className="px-4 py-3 text-brand-muted">{formatWhen(m.lastVisit)}</td>
                       <td className={`px-4 py-3 text-sm ${memberStateClass(m.memberState)}`}>
-                        {memberStateLabel(m.memberState)}
+                        {memberStateLabel(m)}
                       </td>
                       <td className="px-4 py-3 text-brand-muted">{m.notes.length || "—"}</td>
                     </tr>
@@ -546,6 +554,12 @@ export default function TodayMembersTab({
           });
           setOpenSections((s) => ({ ...s, allMembers: true }));
         }}
+      />
+
+      <AddProfessorsSection
+        open={openSections.addProfessors}
+        onToggle={() => toggleSection("addProfessors")}
+        onProfessorAdded={() => {}}
       />
 
       <CollapsibleSection

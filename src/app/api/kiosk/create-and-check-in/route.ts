@@ -17,6 +17,8 @@ const CreateAndCheckInSchema = z.object({
   lastName: z.string().trim().min(1).max(60),
   phone: z.string().trim().min(4).max(20),
   email: z.string().trim().email().optional().or(z.literal("")).transform((v) => (v === "" ? undefined : v)),
+  /** When true (default), new signup starts a 7-day trial; when false, creates a guest only. */
+  startTrial: z.boolean().optional().default(true),
 });
 
 type KioskCreateGuestRpcResult = {
@@ -28,6 +30,7 @@ type KioskCreateGuestRpcResult = {
     last_name: string;
     status: "lead" | "trial" | "guest" | "member";
     member_state: "active" | "delinquent" | "frozen" | "canceled" | null;
+    trial_start_date: string | null;
     trial_end_date: string | null;
     last_check_in: string | null;
   };
@@ -59,7 +62,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid input", details: body.error.flatten() }, { status: 400 });
   }
 
-  const { firstName, lastName, phone, email } = body.data;
+  const { firstName, lastName, phone, email, startTrial } = body.data;
   const phoneDigits = normalizePhone(phone);
 
   if (isKioskDemoMemberEnabled() && matchesKioskDemoGuestPath(phone)) {
@@ -81,6 +84,7 @@ export async function POST(req: Request) {
       p_last_name: lastName,
       p_phone: phoneDigits,
       p_email: email ?? null,
+      p_start_trial: startTrial,
     });
 
     if (error) {
@@ -119,7 +123,11 @@ export async function POST(req: Request) {
         messageTitle: message.title,
         messageBody: message.body,
         confirmation: { checkInLogged: true },
+        personId: person.id,
         trialDaysLeft,
+        trialStartDate: person.trial_start_date ?? null,
+        trialEndDate: person.trial_end_date ?? null,
+        status: person.status,
       },
       { headers: { "Cache-Control": "no-store" } }
     );
