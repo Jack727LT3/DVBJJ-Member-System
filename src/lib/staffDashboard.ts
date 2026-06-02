@@ -1,4 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { dedupeMembersById } from "@/lib/memberRoster";
+import { isStaffFlaggedMember } from "@/lib/staffFlags";
 import type { StaffFlagType } from "@/lib/staffFlags";
 
 export type StaffCheckInRow = {
@@ -19,6 +21,7 @@ export type StaffMemberNote = {
 export type StaffMemberParent = {
   name: string;
   phone: string;
+  email?: string | null;
 };
 
 export type MemberAgeGroup = "adult" | "child";
@@ -44,7 +47,7 @@ export type StaffMemberRow = {
   staffFlagOther: string | null;
 };
 
-export function isChildMember(m: StaffMemberRow) {
+export function isChildMember(m: { ageGroup?: MemberAgeGroup }) {
   return m.ageGroup === "child";
 }
 
@@ -58,6 +61,7 @@ export type StaffTrialRow = {
   trialEndDate: string;
   daysRemaining: number;
   dateOfBirth: string | null;
+  parents: StaffMemberParent[];
   notes: StaffMemberNote[];
 };
 
@@ -71,7 +75,9 @@ export type StaffGuestRow = {
   lastVisit: string | null;
   totalVisits: number;
   dateOfBirth: string | null;
+  ageGroup: MemberAgeGroup;
   completedTrial: boolean;
+  parents: StaffMemberParent[];
   notes: StaffMemberNote[];
 };
 
@@ -92,9 +98,11 @@ export type StaffLeadRow = {
   id: string;
   firstName: string;
   lastName: string;
+  phone: string;
+  email: string | null;
   createdAt: string;
-  contactAttempts: number;
-  lastContactDate: string | null;
+  parents: StaffMemberParent[];
+  notes: StaffMemberNote[];
 };
 
 export type StaffDashboard = {
@@ -107,13 +115,11 @@ export type StaffDashboard = {
     memberCount: number;
     trialCount: number;
     guestCount: number;
-    leadCount: number;
   };
   recentCheckIns: StaffCheckInRow[];
   members: StaffMemberRow[];
   trials: StaffTrialRow[];
   guests: StaffGuestRow[];
-  leads: StaffLeadRow[];
 };
 
 function startOfUtcDay(d = new Date()) {
@@ -126,10 +132,9 @@ function normalizePerson<T>(data: T | T[] | null): T | null {
 }
 
 export function sortMembersLeastRecentFirst(rows: StaffMemberRow[]) {
-  const flagged = rows.filter(
-    (m) => Boolean(m.staffFlagType) || (m.memberState && m.memberState !== "active")
-  );
-  const rest = rows.filter((m) => !m.memberState || m.memberState === "active");
+  const flagged = rows.filter(isStaffFlaggedMember);
+  const flaggedIds = new Set(flagged.map((m) => m.id));
+  const rest = rows.filter((m) => !flaggedIds.has(m.id));
   const byVisit = (a: StaffMemberRow, b: StaffMemberRow) => {
     if (!a.lastVisit && !b.lastVisit) return 0;
     if (!a.lastVisit) return -1;
@@ -304,8 +309,7 @@ const DEMO: StaffDashboard = {
     trialsExpiringSoon: 1,
     memberCount: 18,
     trialCount: 4,
-    guestCount: 3,
-    leadCount: 6,
+    guestCount: 4,
   },
   recentCheckIns: [
     {
@@ -345,6 +349,7 @@ const DEMO: StaffDashboard = {
       trialEndDate: new Date(Date.now() - 3 * 86400000).toISOString(),
       daysRemaining: -3,
       dateOfBirth: null,
+      parents: [],
       notes: [
         {
           id: "tn-expired-1",
@@ -357,12 +362,13 @@ const DEMO: StaffDashboard = {
       id: "t1",
       firstName: "Jordan",
       lastName: "Lee",
-      phone: "7275553408",
+      phone: "7275553999",
       email: null,
       trialStartDate: new Date(Date.now() - 5 * 86400000).toISOString(),
       trialEndDate: new Date(Date.now() + 2 * 86400000).toISOString(),
       daysRemaining: 2,
       dateOfBirth: null,
+      parents: [],
       notes: [],
     },
     {
@@ -375,18 +381,20 @@ const DEMO: StaffDashboard = {
       trialEndDate: new Date(Date.now() + 1 * 86400000).toISOString(),
       daysRemaining: 1,
       dateOfBirth: null,
+      parents: [],
       notes: [],
     },
     {
       id: "t2",
       firstName: "Riley",
       lastName: "Kim",
-      phone: "7275553405",
+      phone: "7275553998",
       email: null,
       trialStartDate: new Date(Date.now() - 1 * 86400000).toISOString(),
       trialEndDate: new Date(Date.now() + 6 * 86400000).toISOString(),
       daysRemaining: 6,
       dateOfBirth: null,
+      parents: [],
       notes: [],
     },
   ],
@@ -402,6 +410,8 @@ const DEMO: StaffDashboard = {
       totalVisits: 0,
       dateOfBirth: demoDateYearsAgo(28),
       completedTrial: true,
+      ageGroup: "adult",
+      parents: [],
       notes: [
         {
           id: "gn1",
@@ -420,7 +430,9 @@ const DEMO: StaffDashboard = {
       lastVisit: new Date().toISOString(),
       totalVisits: 1,
       dateOfBirth: null,
+      ageGroup: "adult",
       completedTrial: false,
+      parents: [],
       notes: [],
     },
     {
@@ -433,18 +445,25 @@ const DEMO: StaffDashboard = {
       lastVisit: null,
       totalVisits: 0,
       dateOfBirth: null,
+      ageGroup: "adult",
       completedTrial: true,
+      parents: [],
       notes: [],
     },
-  ],
-  leads: [
     {
       id: "l1",
       firstName: "Taylor",
       lastName: "Reed",
+      phone: "7275552101",
+      email: "taylor@example.com",
       createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-      contactAttempts: 2,
-      lastContactDate: new Date(Date.now() - 1 * 86400000).toISOString(),
+      lastVisit: null,
+      totalVisits: 0,
+      dateOfBirth: null,
+      ageGroup: "adult",
+      completedTrial: false,
+      parents: [],
+      notes: [],
     },
   ],
 };
@@ -454,19 +473,11 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
     const supabase = getSupabaseAdmin();
     const dayStart = startOfUtcDay();
 
-    const [
-      analyticsRes,
-      memberRpc,
-      trialRpc,
-      guestRpc,
-      leadRpc,
-      checkInsRes,
-    ] = await Promise.all([
+    const [analyticsRes, memberRpc, trialRpc, guestRpc, checkInsRes] = await Promise.all([
       supabase.rpc("admin_analytics"),
       supabase.rpc("admin_people_list", { p_status: "member" }),
       supabase.rpc("admin_people_list", { p_status: "trial" }),
       supabase.rpc("admin_people_list", { p_status: "guest" }),
-      supabase.rpc("admin_people_list", { p_status: "lead" }),
       supabase
         .from("check_ins")
         .select(
@@ -515,6 +526,7 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
       trial_end_date: string;
       days_remaining: number;
       date_of_birth?: string | null;
+      member_parents?: { name: string; phone: string; email?: string | null }[] | null;
       notes: { id: string; body: string; created_at: string }[] | null;
     };
     type RpcGuest = {
@@ -528,21 +540,13 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
       completed_trial?: boolean;
       total_visits?: number;
       date_of_birth?: string | null;
+      member_age_group?: string | null;
+      member_parents?: { name: string; phone: string; email?: string | null }[] | null;
       notes: { id: string; body: string; created_at: string }[] | null;
     };
-    type RpcLead = {
-      id: string;
-      first_name: string;
-      last_name: string;
-      created_at: string;
-      contact_attempts: number;
-      last_contact_date: string | null;
-    };
-
     const membersRaw = (memberRpc.data ?? []) as RpcMember[];
     const trialsRaw = (trialRpc.data ?? []) as RpcTrial[];
     const guestsRaw = (guestRpc.data ?? []) as RpcGuest[];
-    const leadsRaw = (leadRpc.data ?? []) as RpcLead[];
 
     const members: StaffMemberRow[] = membersRaw.map((p) => ({
       id: p.id,
@@ -583,6 +587,9 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
       trialEndDate: p.trial_end_date,
       daysRemaining: p.days_remaining,
       dateOfBirth: p.date_of_birth ?? null,
+      parents: Array.isArray(p.member_parents)
+        ? p.member_parents.filter((g): g is StaffMemberParent => Boolean(g?.name && g?.phone))
+        : [],
       notes: (p.notes ?? []).map((n) => ({
         id: n.id,
         body: n.body,
@@ -600,21 +607,16 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
       lastVisit: p.last_visit,
       totalVisits: p.total_visits ?? 0,
       dateOfBirth: p.date_of_birth ?? null,
+      ageGroup: p.member_age_group === "child" ? "child" : "adult",
       completedTrial: Boolean(p.completed_trial),
+      parents: Array.isArray(p.member_parents)
+        ? p.member_parents.filter((g): g is StaffMemberParent => Boolean(g?.name && g?.phone))
+        : [],
       notes: (p.notes ?? []).map((n) => ({
         id: n.id,
         body: n.body,
         createdAt: n.created_at,
       })),
-    }));
-
-    const leads: StaffLeadRow[] = leadsRaw.map((p) => ({
-      id: p.id,
-      firstName: p.first_name,
-      lastName: p.last_name,
-      createdAt: p.created_at,
-      contactAttempts: p.contact_attempts,
-      lastContactDate: p.last_contact_date,
     }));
 
     const recentCheckIns: StaffCheckInRow[] = (checkInsRes.data ?? []).map(
@@ -647,18 +649,16 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
         memberCount: members.length,
         trialCount: trials.length,
         guestCount: guests.length,
-        leadCount: leads.length,
       },
       recentCheckIns,
-      members: sortMembersLeastRecentFirst(members),
+      members: sortMembersLeastRecentFirst(dedupeMembersById(members)),
       trials: sortTrialsByUrgency(trials),
       guests,
-      leads,
     };
   } catch {
     return {
       ...DEMO,
-      members: sortMembersLeastRecentFirst(DEMO.members),
+      members: sortMembersLeastRecentFirst(dedupeMembersById(DEMO.members)),
       trials: sortTrialsByUrgency(DEMO.trials),
     };
   }

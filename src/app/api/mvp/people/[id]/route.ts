@@ -16,6 +16,7 @@ const BodySchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional()
     .nullable(),
+  ageGroup: z.enum(["adult", "child"]).optional(),
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -50,6 +51,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       p_phone: body.phone ? normalizePhone(body.phone) : null,
       p_email: body.email === undefined ? null : body.email,
       p_date_of_birth: body.dateOfBirth ?? null,
+      p_member_age_group: body.ageGroup ?? null,
     });
     if (error) throw error;
 
@@ -68,6 +70,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         phone: p.phone,
         email: p.email,
         dateOfBirth: p.date_of_birth,
+        ageGroup: p.member_age_group === "child" ? "child" : "adult",
       },
     });
   } catch {

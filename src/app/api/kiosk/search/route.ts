@@ -22,10 +22,13 @@ type PersonSearchRow = {
   first_name: string;
   last_name: string;
   phone: string;
+  email: string | null;
   status: "lead" | "trial" | "guest" | "member" | "professor";
   member_state: "active" | "delinquent" | "frozen" | "canceled" | null;
   trial_end_date: string | null;
   last_check_in: string | null;
+  total_check_ins: number;
+  lead_source: string | null;
 };
 
 export async function POST(req: Request) {
@@ -64,10 +67,13 @@ export async function POST(req: Request) {
     "first_name",
     "last_name",
     "phone",
+    "email",
     "status",
     "member_state",
     "trial_end_date",
     "last_check_in",
+    "total_check_ins",
+    "lead_source",
   ].join(",");
 
   try {
@@ -86,6 +92,19 @@ export async function POST(req: Request) {
     const rows: PersonSearchRow[] = Array.isArray(data)
       ? (data as unknown as PersonSearchRow[])
       : [];
+
+    const personIds = rows.map((p) => p.id);
+    const waiverIds = new Set<string>();
+    if (personIds.length > 0) {
+      const { data: waivers } = await supabaseAdmin
+        .from("liability_waivers")
+        .select("person_id")
+        .in("person_id", personIds);
+      for (const w of waivers ?? []) {
+        const row = w as { person_id: string };
+        waiverIds.add(row.person_id);
+      }
+    }
 
     const results = rows.map((p) => {
       const effective = getEffectiveStatusForMessaging(
@@ -110,6 +129,10 @@ export async function POST(req: Request) {
         memberState: effective.status === "member" ? (effective.member_state ?? null) : null,
         daysLeftInTrial: effective.status === "trial" ? (effective.daysLeft ?? 0) : null,
         lastCheckInAt: p.last_check_in,
+        leadSource: p.lead_source ?? null,
+        hasSignedWaiver: waiverIds.has(p.id),
+        totalCheckIns: p.total_check_ins ?? 0,
+        email: p.email ?? null,
       };
     });
 

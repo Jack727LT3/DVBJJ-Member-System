@@ -11,16 +11,20 @@ import MemberSearchPicker from "@/components/mvp/MemberSearchPicker";
 import type { StaffCheckInRow } from "@/lib/staffDashboard";
 import {
   BELT_TIERS,
+  CHILD_BELT_TIERS,
   formatMoney,
   formatWhen,
   fullName,
   maskPhone,
 } from "@/lib/mvpShared";
+import { isTimestampOnGymToday } from "@/lib/gymTimezone";
+import { compareMembersAlphabetically, dedupeMembersById } from "@/lib/memberRoster";
 import { normalizePhone } from "@/lib/phone";
 import {
   isChildMember,
   sortMembersLeastRecentFirst,
   type StaffDashboard,
+  type StaffGuestRow,
   type StaffMemberRow,
 } from "@/lib/staffDashboard";
 
@@ -65,10 +69,6 @@ function findMemberForCheckIn(members: StaffMemberRow[], row: StaffCheckInRow) {
   );
 }
 
-function startOfUtcDay(d = new Date()) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
-
 function isFlaggedMember(m: StaffMemberRow) {
   return isStaffFlaggedMember(m);
 }
@@ -99,19 +99,19 @@ function memberStateClass(state: StaffMemberRow["memberState"]) {
 }
 
 function beltRankIndex(belt: string | null) {
-  if (!belt) return BELT_TIERS.length;
-  const i = BELT_TIERS.findIndex((b) => b.toLowerCase() === belt.toLowerCase());
-  return i === -1 ? BELT_TIERS.length : i;
+  if (!belt) return BELT_TIERS.length + CHILD_BELT_TIERS.length;
+  const adult = BELT_TIERS.findIndex((b) => b.toLowerCase() === belt.toLowerCase());
+  if (adult !== -1) return adult;
+  const child = CHILD_BELT_TIERS.findIndex((b) => b.toLowerCase() === belt.toLowerCase());
+  if (child !== -1) return BELT_TIERS.length + child;
+  return BELT_TIERS.length + CHILD_BELT_TIERS.length;
 }
 
 function sortMembers(rows: StaffMemberRow[], sort: MemberSort): StaffMemberRow[] {
   const list = [...rows];
   switch (sort) {
     case "alphabetical":
-      return list.sort((a, b) => {
-        const ln = a.lastName.localeCompare(b.lastName);
-        return ln !== 0 ? ln : a.firstName.localeCompare(b.firstName);
-      });
+      return list.sort(compareMembersAlphabetically);
     case "belt":
       return list.sort((a, b) => {
         const bd = beltRankIndex(a.beltColor) - beltRankIndex(b.beltColor);
@@ -194,17 +194,21 @@ type TodayMembersTabProps = {
   data: StaffDashboard;
   members?: StaffMemberRow[];
   onMembersChange?: (members: StaffMemberRow[]) => void;
+  onMembershipCanceled?: (guest: StaffGuestRow) => void;
 };
 
 export default function TodayMembersTab({
   data,
   members: controlledMembers,
   onMembersChange,
+  onMembershipCanceled,
 }: TodayMembersTabProps) {
   const [internalMembers, setInternalMembers] = useState(data.members);
   const members = controlledMembers ?? internalMembers;
   const setMembers: Dispatch<SetStateAction<StaffMemberRow[]>> = (action) => {
-    const next = typeof action === "function" ? action(members) : action;
+    const next = dedupeMembersById(
+      typeof action === "function" ? action(members) : action
+    );
     if (onMembersChange) onMembersChange(next);
     else setInternalMembers(next);
   };
@@ -229,10 +233,10 @@ export default function TodayMembersTab({
   const membersRef = useRef<HTMLDivElement>(null);
   const selectedMember = members.find((m) => m.id === selectedMemberId) ?? null;
 
-  const dayStart = startOfUtcDay();
   const memberCheckInsToday = data.recentCheckIns.filter(
-    (r) => new Date(r.at) >= dayStart && r.status === "member"
+    (r) => r.status === "member" && isTimestampOnGymToday(r.at)
   );
+  const checkInsTodayCount = memberCheckInsToday.length;
   const flaggedMembers = members.filter(isFlaggedMember);
   const inactiveMembers = members.filter(isInactiveMember);
 
@@ -250,7 +254,6 @@ export default function TodayMembersTab({
     if (next === "today") {
       setOpenSections({ checkIns: true, allMembers: false, addMembers: false, addProfessors: false, memberNotes: false });
     } else {
-      setMemberSort(next === "flagged" ? "flagged" : "lastVisit");
       setOpenSections({ checkIns: false, allMembers: true, addMembers: false, addProfessors: false, memberNotes: false });
       requestAnimationFrame(() => {
         membersRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -288,13 +291,9 @@ export default function TodayMembersTab({
         return;
       }
       const note = json.note as { id: string; body: string; createdAt: string };
-      setMembers((prev) => {
-        const next = prev.map((m) =>
-          m.id === noteMemberId ? { ...m, notes: [note, ...m.notes] } : m
-        );
-        onMembersChange?.(next);
-        return next;
-      });
+      setMembers((prev) =>
+        prev.map((m) => (m.id === noteMemberId ? { ...m, notes: [note, ...m.notes] } : m))
+      );
       setNoteBody("");
     } catch {
       setNoteError("Something went wrong.");
@@ -312,7 +311,7 @@ export default function TodayMembersTab({
       <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-3">
         <StatTile
           label="Check-Ins Today"
-          value={data.analytics.checkInsToday}
+          value={checkInsTodayCount}
           active={filter === "today"}
           onClick={() => applyFilter("today")}
         />
@@ -543,14 +542,16 @@ export default function TodayMembersTab({
         open={openSections.addMembers}
         onToggle={() => toggleSection("addMembers")}
         onMemberAdded={(member) => {
-          setMembers((prev) => sortMembersLeastRecentFirst([member, ...prev.filter((m) => m.id !== member.id)]));
+          setMembers((prev) =>
+            sortMembersLeastRecentFirst(dedupeMembersById([member, ...prev.filter((m) => m.id !== member.id)]))
+          );
           setOpenSections((s) => ({ ...s, allMembers: true }));
         }}
         onMembersImported={(imported) => {
           setMembers((prev) => {
             const byId = new Map(prev.map((m) => [m.id, m]));
             for (const m of imported) byId.set(m.id, m);
-            return sortMembersLeastRecentFirst([...byId.values()]);
+            return sortMembersLeastRecentFirst(dedupeMembersById([...byId.values()]));
           });
           setOpenSections((s) => ({ ...s, allMembers: true }));
         }}
@@ -607,7 +608,17 @@ export default function TodayMembersTab({
           member={selectedMember}
           onClose={() => setSelectedMemberId(null)}
           onMemberUpdate={(updated) => {
-            setMembers((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+            setMembers((prev) => dedupeMembersById(prev.map((m) => (m.id === updated.id ? updated : m))));
+          }}
+          onChildAdded={(child) => {
+            setMembers((prev) =>
+              sortMembersLeastRecentFirst(dedupeMembersById([child, ...prev.filter((m) => m.id !== child.id)]))
+            );
+            setOpenSections((s) => ({ ...s, allMembers: true }));
+          }}
+          onConvertedToGuest={(guest: StaffGuestRow) => {
+            setMembers((prev) => prev.filter((m) => m.id !== guest.id));
+            onMembershipCanceled?.(guest);
           }}
         />
       ) : null}

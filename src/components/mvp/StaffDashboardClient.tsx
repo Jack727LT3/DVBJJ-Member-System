@@ -11,6 +11,7 @@ import {
   sortMembersLeastRecentFirst,
   sortTrialsByUrgency,
   type StaffDashboard,
+  type StaffGuestRow,
   type StaffMemberRow,
 } from "@/lib/staffDashboard";
 import { clearStaffAuthentication, isStaffAuthenticated } from "@/lib/staffAuth";
@@ -29,6 +30,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
   const [activeTab, setActiveTab] = useState<StaffTab>("today");
   const [members, setMembers] = useState<StaffMemberRow[]>(() => data.members);
   const [trials, setTrials] = useState(() => sortTrialsByUrgency(data.trials));
+  const [guests, setGuests] = useState<StaffGuestRow[]>(() => data.guests);
 
   useEffect(() => {
     setAuthenticated(isStaffAuthenticated());
@@ -147,12 +149,21 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
         </nav>
 
         {activeTab === "today" ? (
-          <TodayMembersTab data={data} members={members} onMembersChange={setMembers} />
+          <TodayMembersTab
+            data={data}
+            members={members}
+            onMembersChange={setMembers}
+            onMembershipCanceled={(guest) => {
+              setGuests((prev) => [guest, ...prev.filter((g) => g.id !== guest.id)]);
+            }}
+          />
         ) : (
           <OnboardingLeadsTab
             data={data}
             trials={trials}
+            guests={guests}
             onTrialsChange={setTrials}
+            onGuestsChange={setGuests}
             onMemberEnrolled={handleMemberEnrolled}
           />
         )}

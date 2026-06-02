@@ -1,4 +1,4 @@
-/** BJJ belt tiers — highest rank first for reference display. */
+/** Adult BJJ belt tiers — highest rank first for reference display. */
 export const BELT_TIERS = [
   "Black",
   "Brown",
@@ -6,6 +6,21 @@ export const BELT_TIERS = [
   "Blue",
   "White",
 ] as const;
+
+/** Kids program belt colors (IBJJF youth). */
+export const CHILD_BELT_TIERS = ["Green", "Orange", "Yellow", "Grey", "White"] as const;
+
+export type BeltTier = (typeof BELT_TIERS)[number] | (typeof CHILD_BELT_TIERS)[number];
+
+export function beltsForAgeGroup(ageGroup: "adult" | "child"): readonly string[] {
+  return ageGroup === "child" ? CHILD_BELT_TIERS : BELT_TIERS;
+}
+
+/** Select options: child belts low→high; adult belts White→Black. */
+export function beltSelectOptions(ageGroup: "adult" | "child"): string[] {
+  const tiers = beltsForAgeGroup(ageGroup);
+  return ageGroup === "child" ? [...tiers].reverse() : [...tiers].reverse();
+}
 
 export function formatWhen(iso: string | null) {
   if (!iso) return "Never";
@@ -15,6 +30,7 @@ export function formatWhen(iso: string | null) {
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
+      timeZone: "America/New_York",
     });
   } catch {
     return "—";

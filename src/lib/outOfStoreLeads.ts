@@ -63,7 +63,7 @@ function mapContact(c: RpcContact): LeadContactEntry {
 }
 
 function mapLead(row: RpcLead): OutOfStoreLead {
-  return {
+  const lead = normalizeOutOfStoreLead({
     id: row.id,
     firstName: row.first_name,
     lastName: row.last_name,
@@ -75,8 +75,62 @@ function mapLead(row: RpcLead): OutOfStoreLead {
     contactedAt: row.lead_contacted_at,
     contacted: Boolean(row.contacted),
     contactAttempts: row.contact_attempts ?? 0,
-    contacts: (row.contacts ?? []).map(mapContact),
+  });
+  const contacts = (row.contacts ?? []).map(mapContact);
+  return {
+    ...lead,
+    contacts,
+    contactAttempts: row.contact_attempts ?? contacts.length,
   };
+}
+
+function toRpcContact(c: LeadContactEntry | RpcContact): RpcContact {
+  if ("contact_type" in c) return c;
+  return {
+    id: c.id,
+    at: c.at,
+    contact_type: c.contactType,
+    notes: c.notes,
+  };
+}
+
+/** Guard partial API / demo payloads so UI never crashes on missing fields. */
+export function normalizeOutOfStoreLead(
+  raw: Partial<OutOfStoreLead> & { first_name?: string; last_name?: string; contacts?: LeadContactEntry[] | RpcContact[] | null }
+): OutOfStoreLead {
+  const contactsRaw = raw.contacts;
+  const contacts = Array.isArray(contactsRaw)
+    ? contactsRaw
+        .filter((c) => Boolean(c && typeof c === "object"))
+        .map((c) => mapContact(toRpcContact(c as LeadContactEntry | RpcContact)))
+    : [];
+
+  return {
+    id: String(raw.id ?? ""),
+    firstName: String(raw.firstName ?? raw.first_name ?? ""),
+    lastName: String(raw.lastName ?? raw.last_name ?? ""),
+    phone: String(raw.phone ?? ""),
+    email: raw.email ?? null,
+    createdAt: String(raw.createdAt ?? new Date().toISOString()),
+    inquirySource: raw.inquirySource ?? null,
+    notes: raw.notes ?? null,
+    contactedAt: raw.contactedAt ?? null,
+    contacted: Boolean(raw.contacted),
+    contactAttempts: typeof raw.contactAttempts === "number" ? raw.contactAttempts : contacts.length,
+    contacts,
+  };
+}
+
+function parseLeadsRpcData(data: unknown): RpcLead[] {
+  if (typeof data === "string") {
+    try {
+      return parseLeadsRpcData(JSON.parse(data));
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(data)) return data as RpcLead[];
+  return [];
 }
 
 const DEMO_CONTACTS: LeadContactEntry[] = [
@@ -128,7 +182,7 @@ export async function fetchOutOfStoreLeads(): Promise<OutOfStoreLeadsPayload> {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.rpc("mvp_out_of_store_leads_list");
     if (error) throw error;
-    const rows = (data ?? []) as RpcLead[];
+    const rows = parseLeadsRpcData(data);
     return { source: "live", leads: rows.map(mapLead) };
   } catch {
     return { source: "demo", leads: getDemoOutOfStoreLeads() };

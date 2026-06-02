@@ -5,14 +5,16 @@ import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 import PersonNotesSection from "@/components/mvp/PersonNotesSection";
 import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
 import { buildMemberFromGuestEnroll, type GuestEnrollPayload } from "@/lib/guestEnroll";
-import { BELT_TIERS, formatDate, formatMemberAge, formatWhen, fullName } from "@/lib/mvpShared";
+import AddParentDialog from "@/components/mvp/AddParentDialog";
+import PersonParentsSection from "@/components/mvp/PersonParentsSection";
+import { beltSelectOptions, formatDate, formatMemberAge, formatWhen, fullName } from "@/lib/mvpShared";
+import type { StaffMemberParent } from "@/lib/staffDashboard";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
-import type { MemberAgeGroup, StaffGuestRow, StaffMemberRow } from "@/lib/staffDashboard";
+import { isChildMember, type MemberAgeGroup, type StaffGuestRow, type StaffMemberRow } from "@/lib/staffDashboard";
 
 const inputClass =
   "w-full rounded-lg border border-black/10 px-3 py-2 text-sm outline-none focus:border-brand-red/40 focus:ring-4 focus:ring-brand-red/15";
 
-const ENROLL_BELTS = [...BELT_TIERS].reverse();
 
 type GuestProfilePanelProps = {
   guest: StaffGuestRow;
@@ -35,16 +37,19 @@ export default function GuestProfilePanel({
   const [phone, setPhone] = useState(guest.phone);
   const [email, setEmail] = useState(guest.email ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(guest.dateOfBirth ?? "");
+  const [profileAgeGroup, setProfileAgeGroup] = useState<MemberAgeGroup>(guest.ageGroup ?? "adult");
 
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [beltColor, setBeltColor] = useState("White");
   const [monthlyPayment, setMonthlyPayment] = useState("");
-  const [ageGroup, setAgeGroup] = useState<MemberAgeGroup>("adult");
+  const [ageGroup, setAgeGroup] = useState<MemberAgeGroup>(guest.ageGroup ?? "adult");
   const [enrollDob, setEnrollDob] = useState(guest.dateOfBirth ?? "");
   const [parentName, setParentName] = useState("");
   const [parentPhone, setParentPhone] = useState("");
   const [enrollSaving, setEnrollSaving] = useState(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
+  const [showAddParent, setShowAddParent] = useState(false);
+  const [parents, setParents] = useState<StaffMemberParent[]>(guest.parents ?? []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -68,6 +73,7 @@ export default function GuestProfilePanel({
           phone,
           email: email.trim() || null,
           dateOfBirth: dateOfBirth.trim() || null,
+          ageGroup: profileAgeGroup,
         }),
       });
       const json = await res.json();
@@ -75,7 +81,7 @@ export default function GuestProfilePanel({
         setEditError(json.error ?? "Could not save.");
         return;
       }
-      const p = json.person as Partial<StaffGuestRow>;
+      const p = json.person as Partial<StaffGuestRow> & { ageGroup?: MemberAgeGroup };
       onGuestUpdate({
         ...guest,
         firstName: p.firstName ?? firstName,
@@ -83,7 +89,9 @@ export default function GuestProfilePanel({
         phone: p.phone ?? phone,
         email: p.email !== undefined ? p.email : email.trim() || null,
         dateOfBirth: p.dateOfBirth !== undefined ? p.dateOfBirth : dateOfBirth.trim() || null,
+        ageGroup: p.ageGroup ?? profileAgeGroup,
       });
+      setAgeGroup(p.ageGroup ?? profileAgeGroup);
       setEditing(false);
     } catch {
       setEditError("Something went wrong.");
@@ -176,7 +184,7 @@ export default function GuestProfilePanel({
                   ) : null}
                 </p>
               </div>
-              <div className="flex shrink-0 flex-col gap-2">
+              <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
                 {!editing ? (
                   <button
                     type="button"
@@ -184,6 +192,15 @@ export default function GuestProfilePanel({
                     className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-ink hover:bg-neutral-50"
                   >
                     Edit
+                  </button>
+                ) : null}
+                {!editing ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddParent(true)}
+                    className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-ink hover:bg-neutral-50"
+                  >
+                    Add parent
                   </button>
                 ) : null}
                 <button
@@ -220,6 +237,27 @@ export default function GuestProfilePanel({
                   Date of birth
                   <input type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} className={inputClass} />
                 </label>
+                <fieldset>
+                  <legend className="text-xs font-medium text-brand-ink">Member type</legend>
+                  <div className="mt-1.5 flex gap-4">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        checked={profileAgeGroup === "adult"}
+                        onChange={() => setProfileAgeGroup("adult")}
+                      />
+                      Adult
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        checked={profileAgeGroup === "child"}
+                        onChange={() => setProfileAgeGroup("child")}
+                      />
+                      Child
+                    </label>
+                  </div>
+                </fieldset>
                 {editError ? <p className="text-xs text-red-700">{editError}</p> : null}
                 <div className="flex gap-2">
                   <button type="submit" disabled={editSaving} className="rounded-lg bg-brand-red px-4 py-2 text-sm font-semibold text-white">
@@ -246,6 +284,10 @@ export default function GuestProfilePanel({
                     <dd className="mt-0.5 break-all text-sm text-brand-ink">{guest.email ?? "—"}</dd>
                   </div>
                   <div>
+                    <dt className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Member type</dt>
+                    <dd className="mt-0.5 text-sm text-brand-ink">{isChildMember(guest) ? "Child" : "Adult"}</dd>
+                  </div>
+                  <div>
                     <dt className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Age</dt>
                     <dd className="mt-0.5 text-sm text-brand-ink">{formatMemberAge(guest.dateOfBirth)}</dd>
                   </div>
@@ -266,6 +308,8 @@ export default function GuestProfilePanel({
                 </dl>
 
                 <WaiverHistorySection personId={guest.id} />
+
+                <PersonParentsSection parents={parents} />
 
                 <PersonNotesSection
                   personId={guest.id}
@@ -306,7 +350,7 @@ export default function GuestProfilePanel({
                     <label className="block">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Belt</span>
                       <select value={beltColor} onChange={(e) => setBeltColor(e.target.value)} className={inputClass}>
-                        {ENROLL_BELTS.map((belt) => (
+                        {beltSelectOptions(ageGroup).map((belt) => (
                           <option key={belt} value={belt}>
                             {belt}
                           </option>
@@ -314,6 +358,19 @@ export default function GuestProfilePanel({
                       </select>
                     </label>
                   </div>
+                  <fieldset>
+                    <legend className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Member type</legend>
+                    <div className="mt-1 flex gap-4 text-sm">
+                      <label className="flex items-center gap-2">
+                        <input type="radio" checked={ageGroup === "adult"} onChange={() => setAgeGroup("adult")} />
+                        Adult
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input type="radio" checked={ageGroup === "child"} onChange={() => setAgeGroup("child")} />
+                        Child
+                      </label>
+                    </div>
+                  </fieldset>
                   <label className="block">
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Date of birth</span>
                     <input type="date" value={enrollDob} onChange={(e) => setEnrollDob(e.target.value)} className={inputClass} />
@@ -341,6 +398,17 @@ export default function GuestProfilePanel({
           ) : null}
         </KioskSnakeBorderCard>
       </div>
+      {showAddParent ? (
+        <AddParentDialog
+          personId={guest.id}
+          existingParents={parents}
+          onClose={() => setShowAddParent(false)}
+          onSaved={(next) => {
+            setParents(next);
+            onGuestUpdate({ ...guest, parents: next });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

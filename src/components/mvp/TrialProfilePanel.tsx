@@ -2,11 +2,13 @@
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
+import AddParentDialog from "@/components/mvp/AddParentDialog";
 import PersonNotesSection from "@/components/mvp/PersonNotesSection";
+import PersonParentsSection from "@/components/mvp/PersonParentsSection";
 import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
 import { formatDate, formatMemberAge, formatTrialDaysLeft, fullName } from "@/lib/mvpShared";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
-import { isTrialExpired, type StaffTrialRow } from "@/lib/staffDashboard";
+import { isTrialExpired, type StaffMemberParent, type StaffTrialRow } from "@/lib/staffDashboard";
 
 const inputClass =
   "w-full rounded-lg border border-black/10 px-3 py-2 text-sm outline-none focus:border-brand-red/40 focus:ring-4 focus:ring-brand-red/15";
@@ -38,6 +40,8 @@ export default function TrialProfilePanel({
   const [contacted, setContacted] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
+  const [showAddParent, setShowAddParent] = useState(false);
+  const [parents, setParents] = useState<StaffMemberParent[]>(trial.parents ?? []);
 
   const expired = isTrialExpired(trial);
   const showContactComplete = contactMode && expired;
@@ -151,7 +155,7 @@ export default function TrialProfilePanel({
                   </span>
                 </p>
               </div>
-              <div className="flex shrink-0 flex-col gap-2">
+              <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
                 {!editing ? (
                   <button
                     type="button"
@@ -159,6 +163,15 @@ export default function TrialProfilePanel({
                     className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-ink"
                   >
                     Edit
+                  </button>
+                ) : null}
+                {!editing ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddParent(true)}
+                    className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-ink"
+                  >
+                    Add parent
                   </button>
                 ) : null}
                 <button
@@ -233,6 +246,7 @@ export default function TrialProfilePanel({
               </form>
             ) : (
               <>
+                <PersonParentsSection parents={parents} />
                 <WaiverHistorySection personId={trial.id} />
                 <PersonNotesSection
                   personId={trial.id}
@@ -255,7 +269,7 @@ export default function TrialProfilePanel({
                   className="mt-0.5 h-4 w-4 shrink-0 rounded border-black/20 text-brand-red focus:ring-brand-red/30"
                 />
                 <span className="text-sm leading-snug text-brand-ink">
-                  Contacted about expired trial — move to Guests (trial completed)
+                  I contacted them about their expired trial
                 </span>
               </label>
               {completeError ? <p className="text-xs text-red-700">{completeError}</p> : null}
@@ -265,12 +279,23 @@ export default function TrialProfilePanel({
                 onClick={() => void completeContact()}
                 className="w-full rounded-lg bg-brand-red px-4 py-2 text-sm font-semibold text-white hover:bg-brand-red-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {completing ? "Saving…" : "Confirm & Move To Guests"}
+                {completing ? "Saving…" : "Mark contacted"}
               </button>
             </div>
           ) : null}
         </KioskSnakeBorderCard>
       </div>
+      {showAddParent ? (
+        <AddParentDialog
+          personId={trial.id}
+          existingParents={parents}
+          onClose={() => setShowAddParent(false)}
+          onSaved={(next) => {
+            setParents(next);
+            onTrialUpdate({ ...trial, parents: next });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

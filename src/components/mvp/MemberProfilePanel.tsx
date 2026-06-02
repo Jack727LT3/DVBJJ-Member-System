@@ -4,19 +4,29 @@ import { type FormEvent, useEffect, useState } from "react";
 import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 import PersonNotesSection from "@/components/mvp/PersonNotesSection";
 import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
-import { BELT_TIERS, formatDate, formatMemberAge, formatMoney, formatWhen, fullName } from "@/lib/mvpShared";
+import MemberAttendanceSection from "@/components/mvp/MemberAttendanceSection";
+import PersonParentsSection from "@/components/mvp/PersonParentsSection";
+import AddChildDialog from "@/components/mvp/AddChildDialog";
+import AddParentDialog from "@/components/mvp/AddParentDialog";
+import {
+  beltSelectOptions,
+  formatDate,
+  formatMemberAge,
+  formatMoney,
+  formatWhen,
+  fullName,
+} from "@/lib/mvpShared";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
 import {
   STAFF_FLAG_OPTIONS,
   staffFlagLabel,
   type StaffFlagType,
 } from "@/lib/staffFlags";
-import { isChildMember, type MemberAgeGroup, type StaffMemberRow } from "@/lib/staffDashboard";
+import { isChildMember, type MemberAgeGroup, type StaffGuestRow, type StaffMemberRow } from "@/lib/staffDashboard";
 
 const inputClass =
   "mt-1.5 w-full rounded-lg border border-black/10 px-3 py-2.5 text-sm outline-none focus:border-brand-red/40 focus:ring-4 focus:ring-brand-red/15";
 
-const ENROLL_BELTS = [...BELT_TIERS].reverse();
 
 function memberStateLabel(state: StaffMemberRow["memberState"]) {
   if (state === "active" || state === null) return "Active";
@@ -56,10 +66,24 @@ type MemberProfilePanelProps = {
   member: StaffMemberRow;
   onClose: () => void;
   onMemberUpdate: (member: StaffMemberRow) => void;
+  onConvertedToGuest?: (guest: StaffGuestRow) => void;
+  onChildAdded?: (member: StaffMemberRow) => void;
 };
 
-export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: MemberProfilePanelProps) {
+export default function MemberProfilePanel({
+  member,
+  onClose,
+  onMemberUpdate,
+  onConvertedToGuest,
+  onChildAdded,
+}: MemberProfilePanelProps) {
   const [editing, setEditing] = useState(false);
+  const [showAddParent, setShowAddParent] = useState(false);
+  const [showAddChild, setShowAddChild] = useState(false);
+  const [convertSaving, setConvertSaving] = useState(false);
+  const [cancelSaving, setCancelSaving] = useState(false);
+  const [convertError, setConvertError] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -73,6 +97,7 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
   const [ageGroup, setAgeGroup] = useState<MemberAgeGroup>(member.ageGroup);
   const [parentName, setParentName] = useState(member.parents[0]?.name ?? "");
   const [parentPhone, setParentPhone] = useState(member.parents[0]?.phone ?? "");
+  const [parentEmail, setParentEmail] = useState(member.parents[0]?.email ?? "");
 
   const [flagType, setFlagType] = useState<StaffFlagType | "">(member.staffFlagType ?? "");
   const [flagOther, setFlagOther] = useState(member.staffFlagOther ?? "");
@@ -102,8 +127,12 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
     try {
       const parents =
         ageGroup === "child" && parentName.trim() && parentPhone.trim()
-          ? [{ name: parentName.trim(), phone: parentPhone }]
-          : [];
+          ? [{
+              name: parentName.trim(),
+              phone: parentPhone,
+              email: parentEmail.trim() || null,
+            }]
+          : member.parents;
       const res = await fetch(`/api/mvp/members/${member.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -188,6 +217,54 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
     }
   }
 
+  async function cancelMembership() {
+    if (
+      !confirm(
+        `Cancel membership for ${fullName(member.firstName, member.lastName)}? They will move to Guests and leave the member list.`
+      )
+    ) {
+      return;
+    }
+    setCancelError(null);
+    setCancelSaving(true);
+    try {
+      const res = await fetch(`/api/mvp/members/${member.id}/cancel-membership`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok || !json.guest) {
+        setCancelError(json.error ?? "Could not cancel membership.");
+        return;
+      }
+      onConvertedToGuest?.(json.guest as StaffGuestRow);
+      onClose();
+    } catch {
+      setCancelError("Something went wrong.");
+    } finally {
+      setCancelSaving(false);
+    }
+  }
+
+  async function convertToGuest() {
+    if (!confirm(`Move ${fullName(member.firstName, member.lastName)} back to a guest account?`)) return;
+    setConvertError(null);
+    setConvertSaving(true);
+    try {
+      const res = await fetch(`/api/mvp/members/${member.id}/convert-to-guest`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok || !json.guest) {
+        setConvertError(json.error ?? "Could not convert to guest.");
+        return;
+      }
+      onConvertedToGuest?.(json.guest);
+      onClose();
+    } catch {
+      setConvertError("Something went wrong.");
+    } finally {
+      setConvertSaving(false);
+    }
+  }
+
+  const beltOptions = beltSelectOptions(ageGroup);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
@@ -209,7 +286,7 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
               <p className={`mt-1 text-sm ${memberStateClass(member.memberState)}`}>{statusLine}</p>
               <p className="mt-1 text-sm text-brand-muted">{formatPhoneDisplay(member.phone)}</p>
             </div>
-            <div className="flex shrink-0 flex-col gap-2">
+            <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
               {!editing ? (
                 <button
                   type="button"
@@ -217,6 +294,24 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
                   className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-ink hover:bg-neutral-50"
                 >
                   Edit
+                </button>
+              ) : null}
+              {!editing ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAddParent(true)}
+                  className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-ink hover:bg-neutral-50"
+                >
+                  Add parent
+                </button>
+              ) : null}
+              {!editing && !isChildMember(member) ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAddChild(true)}
+                  className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm font-medium text-brand-ink hover:bg-neutral-50"
+                >
+                  Add child
                 </button>
               ) : null}
               <button
@@ -265,7 +360,7 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
                   Belt
                   <select value={beltColor} onChange={(e) => setBeltColor(e.target.value)} className={inputClass}>
                     <option value="">—</option>
-                    {ENROLL_BELTS.map((b) => (
+                    {beltOptions.map((b) => (
                       <option key={b} value={b}>
                         {b}
                       </option>
@@ -312,6 +407,12 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
                     className={inputClass}
                     placeholder="Parent phone"
                   />
+                  <input
+                    value={parentEmail}
+                    onChange={(e) => setParentEmail(e.target.value)}
+                    className={inputClass}
+                    placeholder="Parent email (optional)"
+                  />
                 </div>
               ) : null}
               {editError ? <p className="text-sm text-red-700">{editError}</p> : null}
@@ -336,6 +437,10 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
             <>
               <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                 <Detail label="Age" value={formatMemberAge(member.dateOfBirth)} />
+                <Detail
+                  label="Member type"
+                  value={isChildMember(member) ? "Child" : "Adult"}
+                />
                 <Detail label="Date Of Birth" value={member.dateOfBirth ? formatDate(member.dateOfBirth) : "—"} />
                 <Detail label="Email" value={member.email ?? "—"} className="sm:col-span-2" />
                 <Detail label="Belt" value={member.beltColor ?? "—"} />
@@ -345,24 +450,45 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
                 <Detail label="Member Since" value={formatDate(member.joinDate)} />
               </dl>
 
-              {isChildMember(member) && member.parents.length > 0 ? (
-                <section className="mt-6 border-t border-black/[0.06] pt-5">
-                  <h3 className="text-sm font-semibold text-brand-ink">Parent / Guardian Contacts</h3>
-                  <ul className="mt-3 space-y-2">
-                    {member.parents.map((parent, index) => (
-                      <li
-                        key={`${parent.name}-${index}`}
-                        className="rounded-lg border border-black/[0.06] bg-neutral-50/80 px-3 py-2.5"
-                      >
-                        <p className="text-sm font-medium text-brand-ink">{parent.name}</p>
-                        <a href={`tel:${normalizePhone(parent.phone)}`} className="text-sm font-medium text-brand-red hover:underline">
-                          {formatPhoneDisplay(parent.phone)}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
+              {member.parents.length > 0 ? (
+                <PersonParentsSection parents={member.parents} />
               ) : null}
+
+              <MemberAttendanceSection member={member} onMemberUpdate={onMemberUpdate} />
+
+              {member.memberState !== "canceled" ? (
+                <section className="mt-6 border-t border-black/[0.06] pt-5">
+                  <h3 className="text-sm font-semibold text-brand-ink">Membership</h3>
+                  <p className="mt-1 text-sm text-brand-muted">
+                    Canceling removes them from the member roster and places them in Guests.
+                  </p>
+                  {cancelError ? <p className="mt-2 text-sm text-red-700">{cancelError}</p> : null}
+                  <button
+                    type="button"
+                    onClick={() => void cancelMembership()}
+                    disabled={cancelSaving}
+                    className="mt-3 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-brand-red shadow-sm hover:bg-red-50 disabled:opacity-55"
+                  >
+                    {cancelSaving ? "Canceling…" : "Cancel membership"}
+                  </button>
+                </section>
+              ) : (
+                <section className="mt-6 border-t border-black/[0.06] pt-5">
+                  <h3 className="text-sm font-semibold text-brand-ink">Account status</h3>
+                  <p className="mt-1 text-sm text-brand-muted">
+                    This member is canceled. You can move them back to a guest account to re-engage.
+                  </p>
+                  {convertError ? <p className="mt-2 text-sm text-red-700">{convertError}</p> : null}
+                  <button
+                    type="button"
+                    onClick={() => void convertToGuest()}
+                    disabled={convertSaving}
+                    className="mt-3 rounded-lg border border-black/15 bg-white px-4 py-2 text-sm font-medium shadow-sm hover:bg-neutral-50 disabled:opacity-55"
+                  >
+                    {convertSaving ? "Converting…" : "Change to guest"}
+                  </button>
+                </section>
+              )}
 
               <section className="mt-6 border-t border-black/[0.06] pt-5">
                 <h3 className="text-sm font-semibold text-brand-ink">Staff flag</h3>
@@ -412,6 +538,21 @@ export default function MemberProfilePanel({ member, onClose, onMemberUpdate }: 
           )}
         </KioskSnakeBorderCard>
       </div>
+      {showAddParent ? (
+        <AddParentDialog
+          personId={member.id}
+          existingParents={member.parents}
+          onClose={() => setShowAddParent(false)}
+          onSaved={(parents) => onMemberUpdate({ ...member, parents })}
+        />
+      ) : null}
+      {showAddChild ? (
+        <AddChildDialog
+          parentMember={member}
+          onClose={() => setShowAddChild(false)}
+          onChildAdded={(child) => onChildAdded?.(child)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -114,7 +114,9 @@ export async function POST(req: Request, context: RouteContext) {
       lastVisit: null as string | null,
       totalVisits: 0,
       dateOfBirth: parsed.dateOfBirth,
+      ageGroup: parsed.ageGroup,
       completedTrial: true,
+      parents: parsed.parents ?? [],
       notes: [] as { id: string; body: string; createdAt: string }[],
     };
     return NextResponse.json({

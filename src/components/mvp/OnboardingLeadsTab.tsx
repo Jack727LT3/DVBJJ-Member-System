@@ -2,6 +2,7 @@
 
 import { type Dispatch, type SetStateAction, useMemo, useState } from "react";
 import CollapsibleSection from "@/components/mvp/CollapsibleSection";
+import AddGuestDialog from "@/components/mvp/AddGuestDialog";
 import OutOfStoreLeadsTab from "@/components/mvp/OutOfStoreLeadsTab";
 import GuestProfilePanel from "@/components/mvp/GuestProfilePanel";
 import TrialProfilePanel from "@/components/mvp/TrialProfilePanel";
@@ -10,41 +11,46 @@ import {
   isTrialExpired,
   sortTrialsByUrgency,
   type StaffDashboard,
+  type StaffGuestRow,
   type StaffMemberRow,
   type StaffTrialRow,
 } from "@/lib/staffDashboard";
 
 const LIST_LIMIT = 15;
 
-type SectionKey = "trials" | "outOfStore" | "guests" | "inGym";
+type SectionKey = "trials" | "outOfGym" | "guests";
 
 type OnboardingLeadsTabProps = {
   data: StaffDashboard;
   trials: StaffTrialRow[];
+  guests: StaffGuestRow[];
   onTrialsChange: Dispatch<SetStateAction<StaffTrialRow[]>>;
+  onGuestsChange: Dispatch<SetStateAction<StaffGuestRow[]>>;
   onMemberEnrolled?: (member: StaffMemberRow) => void;
 };
 
 export default function OnboardingLeadsTab({
   data,
   trials,
+  guests,
   onTrialsChange,
+  onGuestsChange,
   onMemberEnrolled,
 }: OnboardingLeadsTabProps) {
-  const [guests, setGuests] = useState(data.guests);
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     trials: true,
-    outOfStore: false,
+    outOfGym: false,
     guests: false,
-    inGym: false,
   });
   const [selectedTrialId, setSelectedTrialId] = useState<string | null>(null);
   const [contactTrialId, setContactTrialId] = useState<string | null>(null);
   const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
+  const [outOfGymCount, setOutOfGymCount] = useState(0);
+  const [showAddOutOfGymLead, setShowAddOutOfGymLead] = useState(false);
+  const [showAddGuest, setShowAddGuest] = useState(false);
 
   const trialsShown = useMemo(() => trials.slice(0, LIST_LIMIT), [trials]);
   const guestsShown = guests.slice(0, LIST_LIMIT);
-  const leadsShown = data.leads.slice(0, LIST_LIMIT);
 
   const selectedTrial = trials.find((t) => t.id === selectedTrialId) ?? null;
   const selectedGuest = guests.find((g) => g.id === selectedGuestId) ?? null;
@@ -61,7 +67,7 @@ export default function OnboardingLeadsTab({
 
   function handleTrialCompleted(trial: StaffTrialRow) {
     onTrialsChange((prev) => prev.filter((t) => t.id !== trial.id));
-    setGuests((prev) => [
+    onGuestsChange((prev) => [
       {
         id: trial.id,
         firstName: trial.firstName,
@@ -72,7 +78,9 @@ export default function OnboardingLeadsTab({
         lastVisit: null,
         totalVisits: 0,
         dateOfBirth: trial.dateOfBirth,
+        ageGroup: "adult",
         completedTrial: true,
+        parents: trial.parents ?? [],
         notes: trial.notes,
       },
       ...prev,
@@ -83,20 +91,31 @@ export default function OnboardingLeadsTab({
   }
 
   function handleGuestEnrolled(member: StaffMemberRow) {
-    setGuests((prev) => prev.filter((g) => g.id !== member.id));
+    onGuestsChange((prev) => prev.filter((g) => g.id !== member.id));
     setSelectedGuestId(null);
     onMemberEnrolled?.(member);
+  }
+
+  function handlePromotedToGuest(guest: StaffGuestRow) {
+    onGuestsChange((prev) => {
+      if (prev.some((g) => g.id === guest.id)) {
+        return prev.map((g) => (g.id === guest.id ? guest : g));
+      }
+      return [guest, ...prev];
+    });
+    setOpenSections((prev) => ({ ...prev, guests: true }));
+    setSelectedGuestId(guest.id);
   }
 
   return (
     <div className="w-full space-y-6">
       <p className="text-sm text-brand-muted">
-        Customer acquisition and follow-up — trials, leads, and guests on the path to membership.
+        Customer acquisition and follow-up — trials, out-of-gym leads, and guests on the path to membership.
       </p>
 
       <CollapsibleSection
         title="Trial Members"
-        subtitle="Sorted by urgency — expired trials first, then days remaining. Contact expired trials to move them to Guests."
+        subtitle="Sorted by urgency — expired trials first, then days remaining. Expired trials move to Guests automatically (trial completed)."
         count={trials.length}
         open={openSections.trials}
         onToggle={() => toggleSection("trials")}
@@ -164,22 +183,45 @@ export default function OnboardingLeadsTab({
       </CollapsibleSection>
 
       <CollapsibleSection
-        title="Out-Of-Store Leads"
+        title="Out-Of-Gym Leads"
         subtitle="Website, phone, or online signups — track outreach before their first visit."
-        open={openSections.outOfStore}
-        onToggle={() => toggleSection("outOfStore")}
+        count={outOfGymCount}
+        open={openSections.outOfGym}
+        onToggle={() => toggleSection("outOfGym")}
+        headerAside={
+          <button
+            type="button"
+            onClick={() => setShowAddOutOfGymLead(true)}
+            className="rounded-lg border border-black/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink shadow-sm hover:bg-neutral-50"
+          >
+            Add lead
+          </button>
+        }
       >
-        <div className="px-5 py-4 sm:px-6 sm:py-5">
-          <OutOfStoreLeadsTab dashboardSource={data.source} embedded />
-        </div>
+        <OutOfStoreLeadsTab
+          dashboardSource={data.source}
+          showAddForm={showAddOutOfGymLead}
+          onAddFormClose={() => setShowAddOutOfGymLead(false)}
+          onPromotedToGuest={handlePromotedToGuest}
+          onCountChange={setOutOfGymCount}
+        />
       </CollapsibleSection>
 
       <CollapsibleSection
         title="Guests"
-        subtitle="Former trials and visitors — completed trials are marked below."
+        subtitle="Kiosk signups and visitors who have not started a trial yet — first check-in starts their 7-day trial. Completed trials are marked below."
         count={guests.length}
         open={openSections.guests}
         onToggle={() => toggleSection("guests")}
+        headerAside={
+          <button
+            type="button"
+            onClick={() => setShowAddGuest(true)}
+            className="rounded-lg border border-black/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink shadow-sm hover:bg-neutral-50"
+          >
+            Add guest
+          </button>
+        }
       >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-left text-sm">
@@ -229,51 +271,12 @@ export default function OnboardingLeadsTab({
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection
-        title="In-Gym Leads"
-        subtitle="Added at the kiosk but not checked in yet — first visit starts their 7-day trial."
-        count={data.analytics.leadCount}
-        open={openSections.inGym}
-        onToggle={() => toggleSection("inGym")}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-left text-sm">
-            <thead className="bg-neutral-50 text-xs font-semibold uppercase tracking-wide text-brand-muted">
-              <tr>
-                <th className="px-4 py-3 sm:px-6">Name</th>
-                <th className="px-4 py-3">Added</th>
-                <th className="px-4 py-3">Times Reached</th>
-                <th className="px-4 py-3">Last Contact</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-black/[0.06]">
-              {leadsShown.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-brand-muted">
-                    No in-gym leads.
-                  </td>
-                </tr>
-              ) : (
-                leadsShown.map((l) => (
-                  <tr key={l.id} className="hover:bg-neutral-50/80">
-                    <td className="px-4 py-3 font-medium sm:px-6">{fullName(l.firstName, l.lastName)}</td>
-                    <td className="px-4 py-3 text-brand-muted">{formatDate(l.createdAt)}</td>
-                    <td className="px-4 py-3 tabular-nums">{l.contactAttempts}</td>
-                    <td className="px-4 py-3 text-brand-muted">{formatDate(l.lastContactDate)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </CollapsibleSection>
-
       {selectedGuest ? (
         <GuestProfilePanel
           guest={selectedGuest}
           onClose={() => setSelectedGuestId(null)}
           onGuestUpdate={(updated) => {
-            setGuests((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
+            onGuestsChange((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
           }}
           onGuestEnrolled={handleGuestEnrolled}
         />
@@ -293,6 +296,20 @@ export default function OnboardingLeadsTab({
           onTrialCompleted={handleTrialCompleted}
         />
       ) : null}
+
+      <AddGuestDialog
+        open={showAddGuest}
+        onClose={() => setShowAddGuest(false)}
+        onGuestAdded={(guest) => {
+          onGuestsChange((prev) => {
+            if (prev.some((g) => g.id === guest.id)) {
+              return prev.map((g) => (g.id === guest.id ? guest : g));
+            }
+            return [guest, ...prev];
+          });
+          setSelectedGuestId(guest.id);
+        }}
+      />
     </div>
   );
 }

@@ -22,6 +22,10 @@ type KioskSearchResult = {
   memberState: "active" | "delinquent" | "frozen" | "canceled" | null;
   daysLeftInTrial: number | null;
   lastCheckInAt: string | null;
+  leadSource?: string | null;
+  hasSignedWaiver?: boolean;
+  totalCheckIns?: number;
+  email?: string | null;
 };
 
 type CheckInResponse = {
@@ -113,6 +117,8 @@ export default function KioskHome() {
   const [pendingGuestFirstName, setPendingGuestFirstName] = useState<string | null>(null);
   const [pendingGuestTrialDaysLeft, setPendingGuestTrialDaysLeft] = useState<number | null>(null);
   const [pendingGuestPersonId, setPendingGuestPersonId] = useState<string | null>(null);
+  const [pendingCheckInAfterWaiver, setPendingCheckInAfterWaiver] = useState(false);
+  const [isFamilySignup, setIsFamilySignup] = useState(false);
   const [waiverSubmitting, setWaiverSubmitting] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
 
@@ -144,11 +150,36 @@ export default function KioskHome() {
     setPendingGuestFirstName(null);
     setPendingGuestTrialDaysLeft(null);
     setPendingGuestPersonId(null);
+    setPendingCheckInAfterWaiver(false);
+    setIsFamilySignup(false);
     clearPhoneLookupState();
     clearGuestFormState();
     setSearchError(null);
     setMode("phoneEntry");
   };
+
+  function needsOutOfStoreOnboarding(r: KioskSearchResult) {
+    return (
+      r.status === "lead" &&
+      r.leadSource === "out_of_store" &&
+      (!r.hasSignedWaiver || (r.totalCheckIns ?? 0) === 0)
+    );
+  }
+
+  function startOutOfStoreOnboarding(r: KioskSearchResult) {
+    setGuestSignupMode("trial");
+    setIsFamilySignup(false);
+    setFirstNameGuest(r.firstName);
+    setLastNameGuest(r.lastName);
+    setPhoneGuest(phone.trim());
+    setGuestEmail(r.email?.trim() ?? "");
+    setPendingGuestPersonId(r.id);
+    setPendingCheckInAfterWaiver(true);
+    setPendingGuestFirstName(sanitizeName(r.firstName) || "there");
+    setPendingGuestTrialDaysLeft(null);
+    setSearchError(null);
+    setMode("guestForm");
+  }
 
   const resetAfterOutcome = () => {
     goToPhoneEntry();
@@ -239,6 +270,11 @@ export default function KioskHome() {
     clearResetTimer();
     setSearchError(null);
 
+    if (needsOutOfStoreOnboarding(r)) {
+      startOutOfStoreOnboarding(r);
+      return;
+    }
+
     if (memberNeedsFrontDesk(r)) {
       setOutcome({ kind: "membershipHold" });
       setMode("outcome");
@@ -309,6 +345,32 @@ export default function KioskHome() {
 
     const guestFailMsg = "Couldn't complete check-in. Please see the front desk.";
 
+    if (pendingCheckInAfterWaiver && pendingGuestPersonId) {
+      try {
+        const res = await fetch(`/api/mvp/people/${pendingGuestPersonId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            firstName: sanitizeName(firstNameGuest),
+            lastName: sanitizeName(lastNameGuest),
+            phone: phoneGuest.trim(),
+            email: guestEmail.trim() || null,
+          }),
+        });
+        if (!res.ok) {
+          setSearchError(guestFailMsg);
+          return;
+        }
+        setPendingGuestFirstName(welcomeFirst);
+        setMode("guestWaiver");
+      } catch {
+        setSearchError(guestFailMsg);
+      } finally {
+        setSearchLoading(false);
+      }
+      return;
+    }
+
     try {
       const res = await fetch("/api/kiosk/create-and-check-in", {
         method: "POST",
@@ -320,6 +382,7 @@ export default function KioskHome() {
           phone: phoneGuest.trim(),
           email: guestEmail.trim(),
           startTrial: guestSignupMode === "trial",
+          forceNewPerson: isFamilySignup,
         }),
       });
 
@@ -349,7 +412,11 @@ export default function KioskHome() {
 
       setPendingGuestFirstName(welcomeFirst);
       setPendingGuestTrialDaysLeft(trialDays);
-      setPendingGuestPersonId(okBody.personId ?? null);
+      if (!pendingCheckInAfterWaiver) {
+        setPendingGuestPersonId(okBody.personId ?? null);
+      } else if (okBody.personId) {
+        setPendingGuestPersonId(okBody.personId);
+      }
       setMode("guestWaiver");
     } catch {
       setSearchError(guestFailMsg);
@@ -360,13 +427,14 @@ export default function KioskHome() {
 
   const completeGuestWaiver = async (waiver: WaiverSubmitPayload) => {
     setWaiverSubmitting(true);
+    const personId = pendingGuestPersonId;
     try {
-      if (pendingGuestPersonId) {
+      if (personId) {
         await fetch("/api/kiosk/waiver", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            personId: pendingGuestPersonId,
+            personId,
             ...waiver,
           }),
         });
@@ -377,18 +445,39 @@ export default function KioskHome() {
       setWaiverSubmitting(false);
     }
 
+    if (pendingCheckInAfterWaiver && personId) {
+      setPendingCheckInAfterWaiver(false);
+      setPendingGuestPersonId(null);
+      setIsFamilySignup(false);
+      const r = results.find((x) => x.id === personId) ?? {
+        id: personId,
+        firstName: firstNameGuest,
+        lastName: lastNameGuest,
+        phoneMasked: "",
+        status: "lead" as const,
+        memberState: null,
+        daysLeftInTrial: null,
+        lastCheckInAt: null,
+      };
+      await handleCheckInResult(r);
+      return;
+    }
+
     const first = pendingGuestFirstName ?? "there";
     const trialLeft = guestSignupMode === "trial" ? pendingGuestTrialDaysLeft : null;
     setPendingGuestFirstName(null);
     setPendingGuestTrialDaysLeft(null);
     setPendingGuestPersonId(null);
+    setIsFamilySignup(false);
     setOutcome({ kind: "guestWelcome", firstName: first, trialDaysLeft: trialLeft });
     setMode("outcome");
     startAutoReset();
   };
 
-  const openSignupForm = (signupMode: GuestSignupMode) => {
+  const openSignupForm = (signupMode: GuestSignupMode, family = false) => {
     setGuestSignupMode(signupMode);
+    setIsFamilySignup(family);
+    setPendingCheckInAfterWaiver(false);
     setFirstNameGuest("");
     setLastNameGuest("");
     setPhoneGuest(phone.trim());
@@ -401,7 +490,17 @@ export default function KioskHome() {
     setResults([]);
     setSearchError(null);
     setLastLookupKey(null);
+    setPendingCheckInAfterWaiver(false);
+    setIsFamilySignup(false);
     setMode("phoneEntry");
+  };
+
+  const backToProfilePick = () => {
+    setPendingCheckInAfterWaiver(false);
+    setIsFamilySignup(false);
+    clearGuestFormState();
+    setSearchError(null);
+    setMode("profilePick");
   };
 
   const currentLookupKey = lookupQueryKey(phone);
@@ -507,7 +606,7 @@ export default function KioskHome() {
         </div>
       ) : mode === "guestWaiver" ? (
         <div className="flex flex-1 flex-col px-5 py-8">
-          <div className="mx-auto flex h-[min(90vh,880px)] w-full max-w-xl min-h-0 flex-col">
+          <div className="mx-auto flex h-[min(90vh,880px)] w-full max-w-xl min-h-0 flex-col gap-3">
             <KioskSnakeBorderCard
               className="flex min-h-0 flex-1 flex-col"
               innerClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
@@ -521,6 +620,13 @@ export default function KioskHome() {
                 submitting={waiverSubmitting}
               />
             </KioskSnakeBorderCard>
+            <button
+              type="button"
+              onClick={() => setMode("guestForm")}
+              className="text-center text-sm font-medium text-brand-muted underline decoration-brand-muted/50 underline-offset-4 hover:text-brand-ink"
+            >
+              ← Back
+            </button>
           </div>
         </div>
       ) : mode === "guestForm" ? (
@@ -532,17 +638,34 @@ export default function KioskHome() {
               </div>
 
               <h1 className="mt-6 text-xl font-semibold tracking-tight text-brand-ink">
-                {guestSignupMode === "trial" ? "Start your 7 day free trial" : "Create your guest account"}
+                {pendingCheckInAfterWaiver
+                  ? "Complete your profile"
+                  : isFamilySignup
+                    ? "Add family member"
+                    : guestSignupMode === "trial"
+                      ? "Start your 7 day free trial"
+                      : "Create your guest account"}
               </h1>
               <p className="mt-2 text-sm leading-relaxed text-brand-muted">
-                Enter your information, then tap <span className="font-medium text-brand-ink">Enter</span> to check in
-                {guestSignupMode === "trial" ? " and begin your trial." : "."}
+                {guestSignupMode === "trial" || isFamilySignup ? (
+                  <>
+                    Enter the participant&apos;s information — the person who will train. If you&apos;re a parent
+                    enrolling a child, use your child&apos;s name here, not yours. Then tap{" "}
+                    <span className="font-medium text-brand-ink">Enter</span> to check in
+                    {guestSignupMode === "trial" ? " and begin their trial." : "."}
+                  </>
+                ) : (
+                  <>
+                    Enter your information, then tap <span className="font-medium text-brand-ink">Enter</span> to check
+                    in.
+                  </>
+                )}
               </p>
 
               <form className="mt-6 space-y-5" onSubmit={submitGuestCheckIn}>
                 <div>
                   <label className="text-sm font-medium text-brand-ink" htmlFor="guest-first">
-                    First Name
+                    {guestSignupMode === "trial" || isFamilySignup ? "Participant first name" : "First name"}
                   </label>
                   <input
                     id="guest-first"
@@ -550,12 +673,14 @@ export default function KioskHome() {
                     onChange={(e) => setFirstNameGuest(e.target.value)}
                     autoComplete="given-name"
                     className={inputClass}
-                    placeholder="First Name"
+                    placeholder={
+                      guestSignupMode === "trial" || isFamilySignup ? "Student's first name" : "First name"
+                    }
                   />
                 </div>
                 <div>
                   <label className="text-sm font-medium text-brand-ink" htmlFor="guest-last">
-                    Last Name
+                    {guestSignupMode === "trial" || isFamilySignup ? "Participant last name" : "Last name"}
                   </label>
                   <input
                     id="guest-last"
@@ -563,13 +688,20 @@ export default function KioskHome() {
                     onChange={(e) => setLastNameGuest(e.target.value)}
                     autoComplete="family-name"
                     className={inputClass}
-                    placeholder="Last Name"
+                    placeholder={
+                      guestSignupMode === "trial" || isFamilySignup ? "Student's last name" : "Last name"
+                    }
                   />
                 </div>
                 <div>
                   <label className="text-sm font-medium text-brand-ink" htmlFor="guest-phone">
-                    Phone Number
+                    {guestSignupMode === "trial" || isFamilySignup ? "Contact phone number" : "Phone number"}
                   </label>
+                  {guestSignupMode === "trial" || isFamilySignup ? (
+                    <p className="mt-1 text-xs text-brand-muted">
+                      A parent&apos;s cell is fine — we use this to find the profile at check-in.
+                    </p>
+                  ) : null}
                   <input
                     id="guest-phone"
                     value={phoneGuest}
@@ -582,7 +714,7 @@ export default function KioskHome() {
                 </div>
                 <div>
                   <label className="text-sm font-medium text-brand-ink" htmlFor="guest-email">
-                    Email
+                    {guestSignupMode === "trial" || isFamilySignup ? "Participant email" : "Email"}
                   </label>
                   <input
                     id="guest-email"
@@ -591,7 +723,9 @@ export default function KioskHome() {
                     inputMode="email"
                     autoComplete="email"
                     className={inputClass}
-                    placeholder="you@example.com"
+                    placeholder={
+                      guestSignupMode === "trial" || isFamilySignup ? "Student's email (if they have one)" : "you@example.com"
+                    }
                   />
                 </div>
 
@@ -612,10 +746,10 @@ export default function KioskHome() {
 
               <button
                 type="button"
-                onClick={goToPhoneEntry}
+                onClick={() => (pendingCheckInAfterWaiver ? backToProfilePick() : goToPhoneEntry())}
                 className="mt-6 text-sm font-medium text-brand-muted underline decoration-brand-muted/50 underline-offset-4 hover:text-brand-ink"
               >
-                ← Back to phone number
+                ← Back
               </button>
             </KioskSnakeBorderCard>
           </div>
@@ -696,6 +830,16 @@ export default function KioskHome() {
                       </button>
                     ))}
                   </div>
+                  <div className="mt-4 space-y-2 border-t border-black/[0.06] pt-4">
+                    <p className="text-sm text-brand-muted">Family on this phone?</p>
+                    <button
+                      type="button"
+                      onClick={() => openSignupForm("trial", true)}
+                      className="w-full rounded-lg border border-black/20 bg-white px-4 py-3 text-sm font-medium text-brand-ink shadow-sm hover:bg-black/[0.02]"
+                    >
+                      Add another student on this number
+                    </button>
+                  </div>
                 </div>
               ) : null}
 
@@ -704,7 +848,7 @@ export default function KioskHome() {
                 onClick={backToPhoneEntry}
                 className="mt-8 text-sm font-medium text-brand-muted underline decoration-brand-muted/50 underline-offset-4 hover:text-brand-ink"
               >
-                ← Edit phone number
+                ← Back
               </button>
             </KioskSnakeBorderCard>
           </div>

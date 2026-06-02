@@ -19,6 +19,8 @@ const CreateAndCheckInSchema = z.object({
   email: z.string().trim().email().optional().or(z.literal("")).transform((v) => (v === "" ? undefined : v)),
   /** When true (default), new signup starts a 7-day trial; when false, creates a guest only. */
   startTrial: z.boolean().optional().default(true),
+  /** When true, always create a separate person on a shared family phone. */
+  forceNewPerson: z.boolean().optional().default(false),
 });
 
 type KioskCreateGuestRpcResult = {
@@ -62,7 +64,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid input", details: body.error.flatten() }, { status: 400 });
   }
 
-  const { firstName, lastName, phone, email, startTrial } = body.data;
+  const { firstName, lastName, phone, email, startTrial, forceNewPerson } = body.data;
   const phoneDigits = normalizePhone(phone);
 
   if (isKioskDemoMemberEnabled() && matchesKioskDemoGuestPath(phone)) {
@@ -85,6 +87,7 @@ export async function POST(req: Request) {
       p_phone: phoneDigits,
       p_email: email ?? null,
       p_start_trial: startTrial,
+      p_force_new_person: forceNewPerson,
     });
 
     if (error) {
