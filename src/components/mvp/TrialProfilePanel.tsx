@@ -12,6 +12,7 @@ import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
 import {
   isTrialExpired,
   type MemberAgeGroup,
+  type StaffGuestRow,
   type StaffMemberParent,
   type StaffMemberRow,
   type StaffTrialRow,
@@ -26,6 +27,7 @@ type TrialProfilePanelProps = {
   onTrialUpdate: (trial: StaffTrialRow) => void;
   onTrialCompleted: (trial: StaffTrialRow) => void;
   onTrialEnrolled?: (member: StaffMemberRow) => void;
+  onTrialMovedToGuest?: (guest: StaffGuestRow) => void;
   contactMode?: boolean;
 };
 
@@ -35,6 +37,7 @@ export default function TrialProfilePanel({
   onTrialUpdate,
   onTrialCompleted,
   onTrialEnrolled,
+  onTrialMovedToGuest,
   contactMode = false,
 }: TrialProfilePanelProps) {
   const phoneRef = useRef<HTMLAnchorElement>(null);
@@ -58,6 +61,8 @@ export default function TrialProfilePanel({
   const [enrollDob, setEnrollDob] = useState(trial.dateOfBirth ?? "");
   const [enrollSaving, setEnrollSaving] = useState(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
+  const [moveToGuestSaving, setMoveToGuestSaving] = useState(false);
+  const [moveToGuestError, setMoveToGuestError] = useState<string | null>(null);
 
   const expired = isTrialExpired(trial);
   const showContactComplete = contactMode && expired;
@@ -130,6 +135,68 @@ export default function TrialProfilePanel({
       dateOfBirth: enrollDob.trim() || null,
       parents: enrollParents,
     };
+  }
+
+  function guestFromTrial(completedTrial = true): StaffGuestRow {
+    return {
+      id: trial.id,
+      firstName: trial.firstName,
+      lastName: trial.lastName,
+      phone: trial.phone,
+      email: trial.email,
+      createdAt: new Date().toISOString(),
+      lastVisit: null,
+      totalVisits: 0,
+      dateOfBirth: trial.dateOfBirth,
+      ageGroup: "adult",
+      completedTrial,
+      parents: parents,
+      notes: trial.notes,
+    };
+  }
+
+  async function moveToGuest() {
+    if (
+      !confirm(
+        `Move ${fullName(trial.firstName, trial.lastName)} to Guests? Their trial will end and they'll be marked as trial completed.`
+      )
+    ) {
+      return;
+    }
+    setMoveToGuestError(null);
+    setMoveToGuestSaving(true);
+    try {
+      const res = await fetch(`/api/mvp/trials/${trial.id}/convert-to-guest`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setMoveToGuestError(json.error ?? "Could not move to guest.");
+        return;
+      }
+      const guest: StaffGuestRow =
+        json.source === "demo"
+          ? guestFromTrial(true)
+          : {
+              id: json.guest.id,
+              firstName: json.guest.firstName,
+              lastName: json.guest.lastName,
+              phone: json.guest.phone,
+              email: json.guest.email,
+              createdAt: json.guest.createdAt,
+              lastVisit: json.guest.lastVisit,
+              totalVisits: json.guest.totalVisits ?? 0,
+              dateOfBirth: json.guest.dateOfBirth,
+              ageGroup: json.guest.ageGroup ?? "adult",
+              completedTrial: Boolean(json.guest.completedTrial),
+              parents: trial.parents ?? [],
+              notes: trial.notes,
+            };
+      onTrialMovedToGuest?.(guest);
+      onClose();
+    } catch {
+      setMoveToGuestError("Something went wrong.");
+    } finally {
+      setMoveToGuestSaving(false);
+    }
   }
 
   async function submitEnroll(e: FormEvent) {
@@ -328,13 +395,24 @@ export default function TrialProfilePanel({
           {!editing && !showContactComplete ? (
             <div className="shrink-0 border-t border-black/[0.06] bg-neutral-50/90 px-5 py-3">
               {!enrollOpen ? (
-                <button
-                  type="button"
-                  onClick={() => setEnrollOpen(true)}
-                  className="w-full rounded-lg bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-black"
-                >
-                  Enroll As Member
-                </button>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    disabled={moveToGuestSaving}
+                    onClick={() => void moveToGuest()}
+                    className="w-full rounded-lg border border-black/10 bg-neutral-200 px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {moveToGuestSaving ? "Moving…" : "Move To Guest"}
+                  </button>
+                  {moveToGuestError ? <p className="text-xs text-red-700">{moveToGuestError}</p> : null}
+                  <button
+                    type="button"
+                    onClick={() => setEnrollOpen(true)}
+                    className="w-full rounded-lg bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-black"
+                  >
+                    Enroll As Member
+                  </button>
+                </div>
               ) : (
                 <form className="space-y-3" onSubmit={submitEnroll}>
                   <p className="text-sm font-semibold text-brand-ink">New member details</p>

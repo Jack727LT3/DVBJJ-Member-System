@@ -103,6 +103,14 @@ export default function OnboardingLeadsTab({
     onMemberEnrolled?.(member);
   }
 
+  function handleTrialMovedToGuest(guest: StaffGuestRow) {
+    onTrialsChange((prev) => prev.filter((t) => t.id !== guest.id));
+    onGuestsChange((prev) => [guest, ...prev.filter((g) => g.id !== guest.id)]);
+    setSelectedTrialId(null);
+    setContactTrialId(null);
+    setOpenSections((prev) => ({ ...prev, guests: true }));
+  }
+
   function handlePromotedToGuest(guest: StaffGuestRow) {
     onGuestsChange((prev) => {
       if (prev.some((g) => g.id === guest.id)) {
@@ -302,6 +310,7 @@ export default function OnboardingLeadsTab({
           }}
           onTrialCompleted={handleTrialCompleted}
           onTrialEnrolled={handleTrialEnrolled}
+          onTrialMovedToGuest={handleTrialMovedToGuest}
         />
       ) : null}
 
