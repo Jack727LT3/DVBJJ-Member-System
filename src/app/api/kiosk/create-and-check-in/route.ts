@@ -39,13 +39,14 @@ type KioskCreateGuestRpcResult = {
   lead_first_visit?: boolean;
 };
 
-function devGuestCheckInSuccessResponse() {
+function devGuestCheckInSuccessResponse(startTrial: boolean) {
   return NextResponse.json(
     {
       messageTitle: "Welcome!",
       messageBody: "Please sign in with the front desk.",
       confirmation: { checkInLogged: true },
-      trialDaysLeft: 7,
+      trialDaysLeft: startTrial ? 7 : null,
+      status: startTrial ? "trial" : "guest",
     },
     { headers: { "Cache-Control": "no-store" } }
   );
@@ -71,9 +72,10 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         messageTitle: "Welcome",
-        messageBody: "Demo guest check-in",
+        messageBody: startTrial ? "Demo trial check-in" : "Demo guest check-in",
         confirmation: { checkInLogged: true },
-        trialDaysLeft: 7,
+        trialDaysLeft: startTrial ? 7 : null,
+        status: startTrial ? "trial" : "guest",
       },
       { headers: { "Cache-Control": "no-store" } }
     );
@@ -136,7 +138,7 @@ export async function POST(req: Request) {
     );
   } catch {
     if (isKioskDemoMemberEnabled()) {
-      return devGuestCheckInSuccessResponse();
+      return devGuestCheckInSuccessResponse(startTrial);
     }
     return NextResponse.json(
       { error: "We couldn't complete check-in. Please see the front desk." },

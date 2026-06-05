@@ -1,4 +1,10 @@
-import type { MemberAgeGroup, StaffGuestRow, StaffMemberParent, StaffMemberRow } from "@/lib/staffDashboard";
+import type {
+  MemberAgeGroup,
+  StaffGuestRow,
+  StaffMemberParent,
+  StaffMemberRow,
+  StaffTrialRow,
+} from "@/lib/staffDashboard";
 
 export type GuestEnrollPayload = {
   beltColor: string;
@@ -7,6 +13,31 @@ export type GuestEnrollPayload = {
   dateOfBirth: string | null;
   parents: StaffMemberParent[];
 };
+
+export function buildMemberFromTrialEnroll(
+  trial: StaffTrialRow,
+  payload: GuestEnrollPayload
+): StaffMemberRow {
+  return {
+    id: trial.id,
+    firstName: trial.firstName,
+    lastName: trial.lastName,
+    phone: trial.phone,
+    email: trial.email,
+    joinDate: new Date().toISOString(),
+    lastVisit: null,
+    totalVisits: 0,
+    memberState: "active",
+    beltColor: payload.beltColor,
+    monthlyPayment: payload.monthlyPayment,
+    ageGroup: payload.ageGroup,
+    dateOfBirth: payload.dateOfBirth,
+    parents: payload.parents,
+    notes: trial.notes,
+    staffFlagType: null,
+    staffFlagOther: null,
+  };
+}
 
 export function buildMemberFromGuestEnroll(
   guest: StaffGuestRow,

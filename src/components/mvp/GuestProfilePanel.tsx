@@ -105,13 +105,15 @@ export default function GuestProfilePanel({
     if (!Number.isFinite(payment) || payment <= 0) {
       return { error: "Enter a valid monthly payment." };
     }
-    const parents =
+    const enrollParents =
       ageGroup === "child"
-        ? [{ name: parentName.trim(), phone: parentPhone.replace(/\D/g, "") }].filter(
-            (p) => p.name && p.phone.length >= 10
-          )
+        ? parents.length > 0
+          ? parents
+          : [{ name: parentName.trim(), phone: parentPhone.replace(/\D/g, "") }].filter(
+              (p) => p.name && p.phone.length >= 10
+            )
         : [];
-    if (ageGroup === "child" && parents.length === 0) {
+    if (ageGroup === "child" && enrollParents.length === 0) {
       return { error: "Parent name and phone are required for child members." };
     }
     return {
@@ -119,7 +121,7 @@ export default function GuestProfilePanel({
       monthlyPayment: payment,
       ageGroup,
       dateOfBirth: enrollDob.trim() || null,
-      parents,
+      parents: enrollParents,
     };
   }
 

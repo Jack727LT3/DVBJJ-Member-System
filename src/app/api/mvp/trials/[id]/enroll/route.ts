@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { buildMemberFromGuestEnroll } from "@/lib/guestEnroll";
+import { buildMemberFromTrialEnroll } from "@/lib/guestEnroll";
 import {
   enrollMemberRpcErrorMessage,
   mapEnrollRpcMember,
   parseEnrollPayload,
 } from "@/lib/enrollMemberApi";
 import { isDemoPersonId } from "@/lib/personNotesApi";
-import type { MemberAgeGroup } from "@/lib/staffDashboard";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -28,25 +27,23 @@ export async function POST(req: Request, context: RouteContext) {
   }
 
   if (isDemoPersonId(id)) {
-    const guestStub = {
+    const trialStub = {
       id,
-      firstName: "Guest",
+      firstName: "Trial",
       lastName: "Member",
       phone: "7275550000",
       email: null as string | null,
-      createdAt: new Date().toISOString(),
-      lastVisit: null as string | null,
-      totalVisits: 0,
+      trialStartDate: new Date().toISOString(),
+      trialEndDate: new Date(Date.now() + 7 * 86400000).toISOString(),
+      daysRemaining: 5,
       dateOfBirth: parsed.dateOfBirth,
-      ageGroup: parsed.ageGroup as MemberAgeGroup,
-      completedTrial: true,
       parents: parsed.parents ?? [],
       notes: [] as { id: string; body: string; createdAt: string }[],
     };
     return NextResponse.json({
       source: "demo",
       ok: true,
-      member: buildMemberFromGuestEnroll(guestStub, parsed),
+      member: buildMemberFromTrialEnroll(trialStub, parsed),
     });
   }
 

@@ -6,9 +6,16 @@ import AddParentDialog from "@/components/mvp/AddParentDialog";
 import PersonNotesSection from "@/components/mvp/PersonNotesSection";
 import PersonParentsSection from "@/components/mvp/PersonParentsSection";
 import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
-import { formatDate, formatMemberAge, formatTrialDaysLeft, fullName } from "@/lib/mvpShared";
+import { buildMemberFromTrialEnroll, type GuestEnrollPayload } from "@/lib/guestEnroll";
+import { beltSelectOptions, formatDate, formatMemberAge, formatTrialDaysLeft, fullName } from "@/lib/mvpShared";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
-import { isTrialExpired, type StaffMemberParent, type StaffTrialRow } from "@/lib/staffDashboard";
+import {
+  isTrialExpired,
+  type MemberAgeGroup,
+  type StaffMemberParent,
+  type StaffMemberRow,
+  type StaffTrialRow,
+} from "@/lib/staffDashboard";
 
 const inputClass =
   "w-full rounded-lg border border-black/10 px-3 py-2 text-sm outline-none focus:border-brand-red/40 focus:ring-4 focus:ring-brand-red/15";
@@ -18,6 +25,7 @@ type TrialProfilePanelProps = {
   onClose: () => void;
   onTrialUpdate: (trial: StaffTrialRow) => void;
   onTrialCompleted: (trial: StaffTrialRow) => void;
+  onTrialEnrolled?: (member: StaffMemberRow) => void;
   contactMode?: boolean;
 };
 
@@ -26,6 +34,7 @@ export default function TrialProfilePanel({
   onClose,
   onTrialUpdate,
   onTrialCompleted,
+  onTrialEnrolled,
   contactMode = false,
 }: TrialProfilePanelProps) {
   const phoneRef = useRef<HTMLAnchorElement>(null);
@@ -42,6 +51,13 @@ export default function TrialProfilePanel({
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [showAddParent, setShowAddParent] = useState(false);
   const [parents, setParents] = useState<StaffMemberParent[]>(trial.parents ?? []);
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const [beltColor, setBeltColor] = useState("White");
+  const [monthlyPayment, setMonthlyPayment] = useState("");
+  const [ageGroup, setAgeGroup] = useState<MemberAgeGroup>("adult");
+  const [enrollDob, setEnrollDob] = useState(trial.dateOfBirth ?? "");
+  const [enrollSaving, setEnrollSaving] = useState(false);
+  const [enrollError, setEnrollError] = useState<string | null>(null);
 
   const expired = isTrialExpired(trial);
   const showContactComplete = contactMode && expired;
@@ -95,6 +111,56 @@ export default function TrialProfilePanel({
       setEditError("Something went wrong.");
     } finally {
       setEditSaving(false);
+    }
+  }
+
+  function buildEnrollPayload(): GuestEnrollPayload | { error: string } {
+    const payment = Number.parseFloat(monthlyPayment);
+    if (!Number.isFinite(payment) || payment <= 0) {
+      return { error: "Enter a valid monthly payment." };
+    }
+    const enrollParents = ageGroup === "child" ? parents : [];
+    if (ageGroup === "child" && enrollParents.length === 0) {
+      return { error: "Add a parent or guardian for child members before enrolling." };
+    }
+    return {
+      beltColor,
+      monthlyPayment: payment,
+      ageGroup,
+      dateOfBirth: enrollDob.trim() || null,
+      parents: enrollParents,
+    };
+  }
+
+  async function submitEnroll(e: FormEvent) {
+    e.preventDefault();
+    setEnrollError(null);
+    const payload = buildEnrollPayload();
+    if ("error" in payload) {
+      setEnrollError(payload.error);
+      return;
+    }
+    setEnrollSaving(true);
+    try {
+      const res = await fetch(`/api/mvp/trials/${trial.id}/enroll`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setEnrollError(json.error ?? "Could not enroll member.");
+        return;
+      }
+      const member =
+        json.source === "demo"
+          ? buildMemberFromTrialEnroll(trial, payload)
+          : (json.member as StaffMemberRow);
+      onTrialEnrolled?.(member);
+    } catch {
+      setEnrollError("Something went wrong.");
+    } finally {
+      setEnrollSaving(false);
     }
   }
 
@@ -253,11 +319,86 @@ export default function TrialProfilePanel({
                   notes={trial.notes}
                   notesApiBase="/api/mvp/people"
                   onNotesChange={(notes) => onTrialUpdate({ ...trial, notes })}
-                  compact={showContactComplete}
+                  compact={showContactComplete || enrollOpen}
                 />
               </>
             )}
           </div>
+
+          {!editing && !showContactComplete ? (
+            <div className="shrink-0 border-t border-black/[0.06] bg-neutral-50/90 px-5 py-3">
+              {!enrollOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setEnrollOpen(true)}
+                  className="w-full rounded-lg bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-black"
+                >
+                  Enroll As Member
+                </button>
+              ) : (
+                <form className="space-y-3" onSubmit={submitEnroll}>
+                  <p className="text-sm font-semibold text-brand-ink">New member details</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">$ / Month</span>
+                      <input
+                        type="number"
+                        min={1}
+                        required
+                        value={monthlyPayment}
+                        onChange={(e) => setMonthlyPayment(e.target.value)}
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Belt</span>
+                      <select value={beltColor} onChange={(e) => setBeltColor(e.target.value)} className={inputClass}>
+                        {beltSelectOptions(ageGroup).map((belt) => (
+                          <option key={belt} value={belt}>
+                            {belt}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <fieldset>
+                    <legend className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Member type</legend>
+                    <div className="mt-1 flex gap-4 text-sm">
+                      <label className="flex items-center gap-2">
+                        <input type="radio" checked={ageGroup === "adult"} onChange={() => setAgeGroup("adult")} />
+                        Adult
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input type="radio" checked={ageGroup === "child"} onChange={() => setAgeGroup("child")} />
+                        Child
+                      </label>
+                    </div>
+                  </fieldset>
+                  <label className="block">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Date of birth</span>
+                    <input type="date" value={enrollDob} onChange={(e) => setEnrollDob(e.target.value)} className={inputClass} />
+                  </label>
+                  {enrollError ? <p className="text-xs text-red-700">{enrollError}</p> : null}
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={enrollSaving}
+                      className="flex-1 rounded-lg bg-brand-red px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {enrollSaving ? "Enrolling…" : "Confirm Enrollment"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEnrollOpen(false)}
+                      className="rounded-lg border border-black/10 bg-white px-4 py-2 text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          ) : null}
 
           {showContactComplete ? (
             <div className="shrink-0 space-y-2 border-t border-black/[0.06] bg-neutral-50/90 px-5 py-3">

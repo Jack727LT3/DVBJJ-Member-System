@@ -96,6 +96,13 @@ export default function OnboardingLeadsTab({
     onMemberEnrolled?.(member);
   }
 
+  function handleTrialEnrolled(member: StaffMemberRow) {
+    onTrialsChange((prev) => prev.filter((t) => t.id !== member.id));
+    setSelectedTrialId(null);
+    setContactTrialId(null);
+    onMemberEnrolled?.(member);
+  }
+
   function handlePromotedToGuest(guest: StaffGuestRow) {
     onGuestsChange((prev) => {
       if (prev.some((g) => g.id === guest.id)) {
@@ -209,7 +216,7 @@ export default function OnboardingLeadsTab({
 
       <CollapsibleSection
         title="Guests"
-        subtitle="Kiosk signups and visitors who have not started a trial yet — first check-in starts their 7-day trial. Completed trials are marked below."
+        subtitle="Visitors and kiosk guest signups — they stay here until enrolled or they start a trial from the kiosk. Completed trials are marked below."
         count={guests.length}
         open={openSections.guests}
         onToggle={() => toggleSection("guests")}
@@ -294,6 +301,7 @@ export default function OnboardingLeadsTab({
             onTrialsChange((prev) => sortTrialsByUrgency(prev.map((t) => (t.id === updated.id ? updated : t))));
           }}
           onTrialCompleted={handleTrialCompleted}
+          onTrialEnrolled={handleTrialEnrolled}
         />
       ) : null}
 
