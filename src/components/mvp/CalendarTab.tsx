@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   addMonths,
   eachDayOfInterval,
@@ -30,6 +30,7 @@ import {
 import { fullName } from "@/lib/mvpShared";
 import type { OutOfStoreLead } from "@/lib/outOfStoreLeads";
 import type { StaffGuestRow, StaffTrialRow } from "@/lib/staffDashboard";
+import { sortTrialsByUrgency } from "@/lib/staffDashboard";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const LANE_HEIGHT = 15;
@@ -40,6 +41,7 @@ const VIEWPORT_LANES = 4;
 type CalendarTabProps = {
   trials: StaffTrialRow[];
   guests: StaffGuestRow[];
+  onTrialsChange?: (trials: StaffTrialRow[]) => void;
   /** Optional: open dialog immediately for a lead/guest (from Out-of-gym). */
   schedulePrefill?: {
     id: string;
@@ -59,6 +61,7 @@ type DialogState = {
 export default function CalendarTab({
   trials,
   guests,
+  onTrialsChange,
   schedulePrefill = null,
   onSchedulePrefillConsumed,
 }: CalendarTabProps) {
@@ -412,12 +415,6 @@ export default function CalendarTab({
                     })}
                   </div>
                 </div>
-
-                {needsScroll ? (
-                  <p className="border-t border-black/[0.04] bg-neutral-50/80 px-2 py-0.5 text-center text-[9px] font-medium text-brand-muted">
-                    Scroll this week for {laneCount - VIEWPORT_LANES} more · appointments &amp; scheduled sit on top
-                  </p>
-                ) : null}
               </div>
             );
           })}
@@ -462,10 +459,25 @@ export default function CalendarTab({
       {selected ? (
         <EventDetailSheet
           event={selected}
+          trial={
+            selected.kind === "active_trial" && selected.personId
+              ? trials.find((t) => t.id === selected.personId) ?? null
+              : null
+          }
           todayKey={todayKey}
           deleting={deleting}
           onClose={() => setSelected(null)}
           onDelete={() => void handleDelete(selected)}
+          onTrialExtended={(updated) => {
+            onTrialsChange?.(sortTrialsByUrgency(trials.map((t) => (t.id === updated.id ? updated : t))));
+            setSelected({
+              ...selected,
+              endDate: updated.trialEndDate.slice(0, 10),
+              startDate: updated.trialStartDate
+                ? updated.trialStartDate.slice(0, 10)
+                : selected.startDate,
+            });
+          }}
         />
       ) : null}
     </div>
@@ -474,17 +486,32 @@ export default function CalendarTab({
 
 function EventDetailSheet({
   event,
+  trial,
   todayKey,
   deleting,
   onClose,
   onDelete,
+  onTrialExtended,
 }: {
   event: CalendarEvent;
+  trial: StaffTrialRow | null;
   todayKey: string;
   deleting: boolean;
   onClose: () => void;
   onDelete: () => void;
+  onTrialExtended: (trial: StaffTrialRow) => void;
 }) {
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [extendDate, setExtendDate] = useState(event.endDate);
+  const [extendSaving, setExtendSaving] = useState(false);
+  const [extendError, setExtendError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setExtendOpen(false);
+    setExtendDate(event.endDate);
+    setExtendError(null);
+  }, [event.id, event.endDate]);
+
   const kindLabel =
     event.kind === "active_trial"
       ? "Active trial"
@@ -498,6 +525,49 @@ function EventDetailSheet({
     event.startDate === event.endDate
       ? format(new Date(`${event.startDate}T12:00:00`), "MMM d, yyyy")
       : `${format(new Date(`${event.startDate}T12:00:00`), "MMM d")} – ${format(new Date(`${event.endDate}T12:00:00`), "MMM d, yyyy")}`;
+
+  async function submitExtend(e: FormEvent) {
+    e.preventDefault();
+    if (!trial) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(extendDate)) {
+      setExtendError("Pick a valid end date.");
+      return;
+    }
+    setExtendSaving(true);
+    setExtendError(null);
+    try {
+      const res = await fetch(`/api/mvp/trials/${trial.id}/extend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trialEndDate: extendDate }),
+      });
+      const json = await res.json();
+      if (!res.ok && !json.trial) {
+        setExtendError(json.error ?? "Could not extend trial.");
+        return;
+      }
+      const end = (json.trial?.trialEndDate as string) ?? `${extendDate}T23:59:59.999Z`;
+      const start = (json.trial?.trialStartDate as string | null) ?? trial.trialStartDate;
+      const daysRemaining =
+        typeof json.trial?.daysRemaining === "number"
+          ? json.trial.daysRemaining
+          : Math.max(
+              0,
+              Math.ceil((new Date(end).getTime() - Date.now()) / 86400000)
+            );
+      onTrialExtended({
+        ...trial,
+        trialEndDate: end,
+        trialStartDate: start,
+        daysRemaining,
+      });
+      setExtendOpen(false);
+    } catch {
+      setExtendError("Something went wrong.");
+    } finally {
+      setExtendSaving(false);
+    }
+  }
 
   return (
     <ModalPortal>
@@ -519,6 +589,52 @@ function EventDetailSheet({
             <p className="mt-2 text-xs text-brand-muted">
               Linked: {fullName(event.personFirstName, event.personLastName ?? "")}
             </p>
+          ) : null}
+
+          {event.kind === "active_trial" && trial ? (
+            <div className="mt-4 space-y-2">
+              {!extendOpen ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExtendDate(trial.trialEndDate.slice(0, 10));
+                    setExtendError(null);
+                    setExtendOpen(true);
+                  }}
+                  className="w-full rounded-lg border border-black/15 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-neutral-50"
+                >
+                  Extend Trial
+                </button>
+              ) : (
+                <form className="space-y-2 rounded-lg border border-black/10 bg-neutral-50 p-3" onSubmit={(e) => void submitExtend(e)}>
+                  <p className="text-sm font-semibold text-brand-ink">New trial end date</p>
+                  <input
+                    type="date"
+                    value={extendDate}
+                    onChange={(e) => setExtendDate(e.target.value)}
+                    className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm outline-none focus:border-brand-red/40 focus:ring-4 focus:ring-brand-red/15"
+                    required
+                  />
+                  {extendError ? <p className="text-xs text-red-700">{extendError}</p> : null}
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={extendSaving}
+                      className="flex-1 rounded-lg bg-brand-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {extendSaving ? "Saving…" : "Save new end date"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExtendOpen(false)}
+                      className="rounded-lg border border-black/10 px-4 py-2 text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
           ) : null}
 
           <div className="mt-5 flex gap-2">

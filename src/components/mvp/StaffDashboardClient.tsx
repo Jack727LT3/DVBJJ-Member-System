@@ -199,6 +199,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
           <CalendarTab
             trials={trials}
             guests={guests}
+            onTrialsChange={setTrials}
             schedulePrefill={calendarPrefill}
             onSchedulePrefillConsumed={() => setCalendarPrefill(null)}
           />
