@@ -11,14 +11,24 @@ export type CalendarEvent = {
   personId: string | null;
   personFirstName?: string | null;
   personLastName?: string | null;
+  personPhone?: string | null;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
+  /** HH:mm (24h) for display on first day / appointments */
+  startTime: string | null;
   createdAt?: string;
+};
+
+export type CalendarTrialOverlay = {
+  personId: string;
+  note: string | null;
+  startTime: string | null;
 };
 
 export type DaySegmentTone = "start" | "middle" | "end" | "single" | "scheduled" | "appointment";
 
 const DEMO_STORAGE_KEY = "dvbjj-calendar-events";
+const DEMO_OVERLAY_KEY = "dvbjj-calendar-trial-overlays";
 
 export function toDateKey(d: Date | string): string {
   if (typeof d === "string") {
@@ -32,28 +42,75 @@ export function parseDateKey(key: string): Date {
   return startOfDay(parseISO(key.slice(0, 10)));
 }
 
+/** Normalize DB time / ISO / HH:mm to HH:mm */
+export function normalizeTimeValue(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (/^\d{2}:\d{2}/.test(s)) return s.slice(0, 5);
+  try {
+    return format(parseISO(s), "HH:mm");
+  } catch {
+    return null;
+  }
+}
+
+/** Compact display like 4:30p */
+export function formatCalendarTime(time: string | null | undefined): string | null {
+  const hm = normalizeTimeValue(time);
+  if (!hm) return null;
+  const [hStr, mStr] = hm.split(":");
+  let h = Number(hStr);
+  const m = Number(mStr);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  const suffix = h >= 12 ? "p" : "a";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return m === 0 ? `${h}${suffix}` : `${h}:${String(m).padStart(2, "0")}${suffix}`;
+}
+
+export function timeFromIsoTimestamp(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  try {
+    const d = parseISO(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    // Ignore pure midnight placeholders (date-only casts)
+    if (d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0) return null;
+    return format(d, "HH:mm");
+  } catch {
+    return null;
+  }
+}
+
 export function trialEndDateKey(trial: StaffTrialRow): string {
   return toDateKey(trial.trialEndDate);
 }
 
 export function trialStartDateKey(trial: StaffTrialRow): string {
   if (trial.trialStartDate) return toDateKey(trial.trialStartDate);
-  // Fall back: end minus 6 days for a 7-day trial window
   return toDateKey(addDays(parseDateKey(trialEndDateKey(trial)), -6));
 }
 
-export function trialsToCalendarEvents(trials: StaffTrialRow[]): CalendarEvent[] {
-  return trials.map((t) => ({
-    id: `trial-${t.id}`,
-    kind: "active_trial" as const,
-    title: `${t.firstName} ${t.lastName}`.trim(),
-    notes: null,
-    personId: t.id,
-    personFirstName: t.firstName,
-    personLastName: t.lastName,
-    startDate: trialStartDateKey(t),
-    endDate: trialEndDateKey(t),
-  }));
+export function trialsToCalendarEvents(
+  trials: StaffTrialRow[],
+  overlays: CalendarTrialOverlay[] = []
+): CalendarEvent[] {
+  const byPerson = new Map(overlays.map((o) => [o.personId, o]));
+  return trials.map((t) => {
+    const overlay = byPerson.get(t.id);
+    return {
+      id: `trial-${t.id}`,
+      kind: "active_trial" as const,
+      title: `${t.firstName} ${t.lastName}`.trim(),
+      notes: overlay?.note ?? null,
+      personId: t.id,
+      personFirstName: t.firstName,
+      personLastName: t.lastName,
+      personPhone: t.phone,
+      startDate: trialStartDateKey(t),
+      endDate: trialEndDateKey(t),
+      startTime: overlay?.startTime ?? timeFromIsoTimestamp(t.trialStartDate) ?? null,
+    };
+  });
 }
 
 export function segmentToneForDay(event: CalendarEvent, dayKey: string, todayKey: string): DaySegmentTone {
@@ -93,13 +150,11 @@ export function eventsForDay(events: CalendarEvent[], dayKey: string): CalendarE
 }
 
 function lanePriority(kind: CalendarEvent["kind"]): number {
-  // Lower = rendered nearer the top (appointments / scheduled first so they aren't buried).
   if (kind === "appointment") return 0;
   if (kind === "scheduled_trial") return 1;
   return 2;
 }
 
-/** Assign vertical lanes so overlapping events don't stack on top of each other within a week. */
 export function assignEventLanes(events: CalendarEvent[]): Map<string, number> {
   const sorted = [...events].sort((a, b) => {
     const p = lanePriority(a.kind) - lanePriority(b.kind);
@@ -124,7 +179,9 @@ export function loadDemoCalendarEvents(): CalendarEvent[] {
     const raw = localStorage.getItem(DEMO_STORAGE_KEY);
     if (!raw) return defaultDemoEvents();
     const parsed = JSON.parse(raw) as CalendarEvent[];
-    return Array.isArray(parsed) ? parsed : defaultDemoEvents();
+    return Array.isArray(parsed)
+      ? parsed.map((e) => ({ ...e, startTime: e.startTime ?? null }))
+      : defaultDemoEvents();
   } catch {
     return defaultDemoEvents();
   }
@@ -134,6 +191,23 @@ export function saveDemoCalendarEvents(events: CalendarEvent[]) {
   if (typeof window === "undefined") return;
   const onlyManual = events.filter((e) => e.kind !== "active_trial");
   localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(onlyManual));
+}
+
+export function loadDemoOverlays(): CalendarTrialOverlay[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DEMO_OVERLAY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as CalendarTrialOverlay[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveDemoOverlays(overlays: CalendarTrialOverlay[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DEMO_OVERLAY_KEY, JSON.stringify(overlays));
 }
 
 function defaultDemoEvents(): CalendarEvent[] {
@@ -148,6 +222,7 @@ function defaultDemoEvents(): CalendarEvent[] {
       personId: null,
       startDate: toDateKey(addDays(today, 2)),
       endDate: toDateKey(addDays(today, 2)),
+      startTime: "17:00",
     },
     {
       id: "demo-sched-1",
@@ -157,6 +232,7 @@ function defaultDemoEvents(): CalendarEvent[] {
       personId: null,
       startDate: futureStart,
       endDate: toDateKey(addDays(today, 11)),
+      startTime: null,
     },
   ];
 }
@@ -169,8 +245,10 @@ export function mapRpcCalendarEvent(raw: {
   person_id: string | null;
   person_first_name?: string | null;
   person_last_name?: string | null;
+  person_phone?: string | null;
   start_date: string;
   end_date: string;
+  start_time?: string | null;
   created_at?: string;
 }): CalendarEvent {
   return {
@@ -181,12 +259,31 @@ export function mapRpcCalendarEvent(raw: {
     personId: raw.person_id,
     personFirstName: raw.person_first_name,
     personLastName: raw.person_last_name,
+    personPhone: raw.person_phone ?? null,
     startDate: toDateKey(raw.start_date),
     endDate: toDateKey(raw.end_date),
+    startTime: normalizeTimeValue(raw.start_time ?? null),
     createdAt: raw.created_at,
+  };
+}
+
+export function mapRpcOverlay(raw: {
+  person_id: string;
+  note: string | null;
+  start_time: string | null;
+}): CalendarTrialOverlay {
+  return {
+    personId: raw.person_id,
+    note: raw.note,
+    startTime: normalizeTimeValue(raw.start_time),
   };
 }
 
 export function daysInSpan(startKey: string, endKey: string): Date[] {
   return eachDayOfInterval({ start: parseDateKey(startKey), end: parseDateKey(endKey) });
+}
+
+export function barLabel(event: CalendarEvent, showTime: boolean): string {
+  const time = showTime ? formatCalendarTime(event.startTime) : null;
+  return time ? `${event.title} · ${time}` : event.title;
 }

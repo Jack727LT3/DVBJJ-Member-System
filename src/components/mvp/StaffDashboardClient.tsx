@@ -19,6 +19,7 @@ import { clearStaffAuthentication, isStaffAuthenticated } from "@/lib/staffAuth"
 import { clearDismissedNotifications } from "@/lib/staffNotificationDismissals";
 import { buildStaffNotifications, type StaffNotification } from "@/lib/staffNotifications";
 import { fullName } from "@/lib/mvpShared";
+import { toDateKey, type CalendarEvent } from "@/lib/staffCalendar";
 
 type StaffTab = "today" | "onboarding" | "calendar";
 
@@ -40,15 +41,33 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
   const [trials, setTrials] = useState(() => sortTrialsByUrgency(data.trials));
   const [guests, setGuests] = useState<StaffGuestRow[]>(() => data.guests);
   const [calendarPrefill, setCalendarPrefill] = useState<CalendarPrefill | null>(null);
+  const [appointmentEvents, setAppointmentEvents] = useState<CalendarEvent[]>([]);
 
   useEffect(() => {
     setAuthenticated(isStaffAuthenticated());
     setAuthChecked(true);
   }, []);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const today = new Date();
+        const from = toDateKey(today);
+        const toDate = new Date(today);
+        toDate.setDate(toDate.getDate() + 2);
+        const to = toDateKey(toDate);
+        const res = await fetch(`/api/mvp/calendar?from=${from}&to=${to}`, { cache: "no-store" });
+        const json = (await res.json()) as { events?: CalendarEvent[] };
+        setAppointmentEvents((json.events ?? []).filter((e) => e.kind === "appointment"));
+      } catch {
+        setAppointmentEvents([]);
+      }
+    })();
+  }, []);
+
   const notifications = useMemo(
-    () => buildStaffNotifications({ members, trials }),
-    [members, trials]
+    () => buildStaffNotifications({ members, trials, calendarEvents: appointmentEvents }),
+    [members, trials, appointmentEvents]
   );
 
   function handleMemberEnrolled(member: StaffMemberRow) {
@@ -56,8 +75,17 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
   }
 
   function handleNotificationSelect(notification: StaffNotification) {
-    if (notification.kind === "trial_ended") {
-      setActiveTab("onboarding");
+    if (
+      notification.kind === "trial_ended" ||
+      notification.kind === "trial_ending" ||
+      notification.kind === "trial_started" ||
+      notification.kind === "trial_midway"
+    ) {
+      setActiveTab(notification.kind === "trial_ended" ? "onboarding" : "calendar");
+      return;
+    }
+    if (notification.kind === "appointment_today" || notification.kind === "appointment_tomorrow") {
+      setActiveTab("calendar");
       return;
     }
     setActiveTab("today");
@@ -200,6 +228,9 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
             trials={trials}
             guests={guests}
             onTrialsChange={setTrials}
+            onGuestsChange={setGuests}
+            onMemberEnrolled={handleMemberEnrolled}
+            onCalendarEventsChange={setAppointmentEvents}
             schedulePrefill={calendarPrefill}
             onSchedulePrefillConsumed={() => setCalendarPrefill(null)}
           />

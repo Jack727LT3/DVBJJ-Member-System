@@ -34,6 +34,8 @@ describe("buildStaffNotifications", () => {
             dateOfBirth: "1990-05-21",
             parents: [],
             notes: [],
+            staffFlagType: null,
+            staffFlagOther: null,
           },
         ],
         trials: [
@@ -46,6 +48,8 @@ describe("buildStaffNotifications", () => {
             trialStartDate: null,
             trialEndDate: "2026-05-18",
             daysRemaining: -3,
+            dateOfBirth: null,
+            parents: [],
             notes: [],
           },
         ],
@@ -57,7 +61,89 @@ describe("buildStaffNotifications", () => {
     expect(notifications.map((n) => n.kind)).toEqual(["trial_ended", "payment_failed", "birthday"]);
   });
 
-  it("ignores active members and active trials", () => {
+  it("flags trial start, midway, ending, and appointments", () => {
+    const notifications = buildStaffNotifications(
+      {
+        members: [],
+        trials: [
+          {
+            id: "t-start",
+            firstName: "Sam",
+            lastName: "Lee",
+            phone: "7275550201",
+            email: null,
+            trialStartDate: "2026-05-21T15:00:00.000Z",
+            trialEndDate: "2026-05-28",
+            daysRemaining: 6,
+            dateOfBirth: null,
+            parents: [],
+            notes: [],
+          },
+          {
+            id: "t-mid",
+            firstName: "Mid",
+            lastName: "Way",
+            phone: "7275550202",
+            email: null,
+            trialStartDate: "2026-05-18T12:00:00.000Z",
+            trialEndDate: "2026-05-25",
+            daysRemaining: 3,
+            dateOfBirth: null,
+            parents: [],
+            notes: [],
+          },
+          {
+            id: "t-end",
+            firstName: "Last",
+            lastName: "Day",
+            phone: "7275550203",
+            email: null,
+            trialStartDate: "2026-05-14T12:00:00.000Z",
+            trialEndDate: "2026-05-21",
+            daysRemaining: 0,
+            dateOfBirth: null,
+            parents: [],
+            notes: [],
+          },
+        ],
+        calendarEvents: [
+          {
+            id: "a1",
+            kind: "appointment",
+            title: "Tour",
+            notes: null,
+            personId: null,
+            startDate: "2026-05-21",
+            endDate: "2026-05-21",
+            startTime: "17:00",
+          },
+          {
+            id: "a2",
+            kind: "appointment",
+            title: "Guest",
+            notes: null,
+            personId: null,
+            startDate: "2026-05-22",
+            endDate: "2026-05-22",
+            startTime: null,
+          },
+        ],
+      },
+      today
+    );
+
+    expect(notifications.map((n) => n.kind).sort()).toEqual(
+      [
+        "appointment_today",
+        "appointment_tomorrow",
+        "trial_ending",
+        "trial_midway",
+        "trial_started",
+      ].sort()
+    );
+  });
+
+  it("ignores active members and quiet trials", () => {
     const notifications = buildStaffNotifications(
       minimalData({
         members: [
@@ -77,6 +163,8 @@ describe("buildStaffNotifications", () => {
             dateOfBirth: "1990-06-15",
             parents: [],
             notes: [],
+            staffFlagType: null,
+            staffFlagOther: null,
           },
         ],
         trials: [
@@ -86,9 +174,11 @@ describe("buildStaffNotifications", () => {
             lastName: "Lee",
             phone: "7275550201",
             email: null,
-            trialStartDate: null,
-            trialEndDate: "2026-05-28",
-            daysRemaining: 7,
+            trialStartDate: "2026-05-19T12:00:00.000Z",
+            trialEndDate: "2026-05-26",
+            daysRemaining: 5,
+            dateOfBirth: null,
+            parents: [],
             notes: [],
           },
         ],

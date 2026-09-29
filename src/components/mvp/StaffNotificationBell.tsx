@@ -18,12 +18,22 @@ const KIND_LABELS: Record<StaffNotificationKind, string> = {
   birthday: "Birthday",
   payment_failed: "Payment",
   trial_ended: "Trial ended",
+  trial_started: "Trial started",
+  trial_midway: "Trial midway",
+  trial_ending: "Trial ending",
+  appointment_tomorrow: "Appt tomorrow",
+  appointment_today: "Appt today",
 };
 
 const KIND_STYLES: Record<StaffNotificationKind, string> = {
   birthday: "bg-violet-100 text-violet-900",
   payment_failed: "bg-red-100 text-red-900",
   trial_ended: "bg-amber-100 text-amber-950",
+  trial_started: "bg-emerald-100 text-emerald-950",
+  trial_midway: "bg-violet-100 text-violet-950",
+  trial_ending: "bg-orange-100 text-orange-950",
+  appointment_tomorrow: "bg-sky-100 text-sky-950",
+  appointment_today: "bg-sky-100 text-sky-950",
 };
 
 function BellIcon({ className }: { className?: string }) {

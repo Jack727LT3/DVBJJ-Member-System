@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { mapRpcCalendarEvent } from "@/lib/staffCalendar";
+import { mapRpcCalendarEvent, mapRpcOverlay } from "@/lib/staffCalendar";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -12,18 +12,22 @@ export async function GET(req: Request) {
   try {
     const supabase = getSupabaseAdmin();
     await supabase.rpc("mvp_calendar_activate_due_trials");
-    const { data, error } = await supabase.rpc("mvp_calendar_events_list", {
-      p_from: from,
-      p_to: to,
-    });
-    if (error) throw error;
-    const rows = Array.isArray(data) ? data : [];
+    const [eventsRpc, overlaysRpc] = await Promise.all([
+      supabase.rpc("mvp_calendar_events_list", { p_from: from, p_to: to }),
+      supabase.rpc("mvp_calendar_trial_overlays_list"),
+    ]);
+    if (eventsRpc.error) throw eventsRpc.error;
+    const rows = Array.isArray(eventsRpc.data) ? eventsRpc.data : [];
+    const overlaysRaw = Array.isArray(overlaysRpc.data) ? overlaysRpc.data : [];
     return NextResponse.json({
       source: "live",
       events: rows.map((r) => mapRpcCalendarEvent(r as Parameters<typeof mapRpcCalendarEvent>[0])),
+      trialOverlays: overlaysRaw.map((r) =>
+        mapRpcOverlay(r as Parameters<typeof mapRpcOverlay>[0])
+      ),
     });
   } catch {
-    return NextResponse.json({ source: "demo", events: [] });
+    return NextResponse.json({ source: "demo", events: [], trialOverlays: [] });
   }
 }
 
@@ -41,6 +45,8 @@ export async function POST(req: Request) {
   const endDate = typeof b.endDate === "string" ? b.endDate.slice(0, 10) : startDate;
   const notes = typeof b.notes === "string" ? b.notes : null;
   const personId = typeof b.personId === "string" && b.personId.length > 0 ? b.personId : null;
+  const startTime =
+    typeof b.startTime === "string" && /^\d{2}:\d{2}/.test(b.startTime) ? b.startTime.slice(0, 5) : null;
 
   if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
     return NextResponse.json({ error: "Title and start date are required." }, { status: 400 });
@@ -55,6 +61,7 @@ export async function POST(req: Request) {
       p_end_date: endDate || startDate,
       p_person_id: personId,
       p_notes: notes,
+      p_start_time: startTime,
     });
     if (error) throw error;
     const result = data as {
@@ -77,7 +84,6 @@ export async function POST(req: Request) {
       event: mapRpcCalendarEvent(result.event),
     });
   } catch {
-    // Demo / offline fallback
     const event = {
       id: `demo-cal-${Date.now()}`,
       kind: kind as "appointment" | "scheduled_trial",
@@ -93,6 +99,7 @@ export async function POST(req: Request) {
               return d.toISOString().slice(0, 10);
             })()
           : endDate || startDate,
+      startTime,
     };
     return NextResponse.json({ source: "demo", ok: true, event });
   }
