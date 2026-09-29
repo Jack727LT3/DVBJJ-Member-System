@@ -92,9 +92,18 @@ export function eventsForDay(events: CalendarEvent[], dayKey: string): CalendarE
   return events.filter((e) => eventCoversDay(e, dayKey));
 }
 
+function lanePriority(kind: CalendarEvent["kind"]): number {
+  // Lower = rendered nearer the top (appointments / scheduled first so they aren't buried).
+  if (kind === "appointment") return 0;
+  if (kind === "scheduled_trial") return 1;
+  return 2;
+}
+
 /** Assign vertical lanes so overlapping events don't stack on top of each other within a week. */
 export function assignEventLanes(events: CalendarEvent[]): Map<string, number> {
   const sorted = [...events].sort((a, b) => {
+    const p = lanePriority(a.kind) - lanePriority(b.kind);
+    if (p !== 0) return p;
     if (a.startDate !== b.startDate) return a.startDate.localeCompare(b.startDate);
     return a.endDate.localeCompare(b.endDate);
   });

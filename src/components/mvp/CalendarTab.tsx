@@ -32,9 +32,10 @@ import type { OutOfStoreLead } from "@/lib/outOfStoreLeads";
 import type { StaffGuestRow, StaffTrialRow } from "@/lib/staffDashboard";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const LANE_HEIGHT = 22;
-const LANE_GAP = 2;
-const MAX_VISIBLE_LANES = 3;
+const LANE_HEIGHT = 15;
+const LANE_GAP = 1;
+/** How many lanes fit in the week row before scrolling. */
+const VIEWPORT_LANES = 4;
 
 type CalendarTabProps = {
   trials: StaffTrialRow[];
@@ -256,132 +257,167 @@ export default function CalendarTab({
               (e) => e.startDate <= weekEndKey && e.endDate >= weekStartKey
             );
             const lanes = assignEventLanes(weekEvents);
-            const laneCount = Math.min(
-              MAX_VISIBLE_LANES,
-              weekEvents.reduce((m, e) => Math.max(m, (lanes.get(e.id) ?? 0) + 1), 0)
-            );
-            const barsHeight = laneCount * (LANE_HEIGHT + LANE_GAP) + 4;
+            const laneCount = weekEvents.reduce((m, e) => Math.max(m, (lanes.get(e.id) ?? 0) + 1), 0);
+            const contentHeight = Math.max(laneCount, 1) * (LANE_HEIGHT + LANE_GAP) + 6;
+            const viewportHeight = VIEWPORT_LANES * (LANE_HEIGHT + LANE_GAP) + 6;
+            const needsScroll = laneCount > VIEWPORT_LANES;
 
             return (
-              <div key={weekStartKey} className="relative grid grid-cols-7">
-                {week.map((day) => {
-                  const key = toDateKey(day);
-                  const inMonth = isSameMonth(day, cursor);
-                  const isToday = isSameDay(day, today);
-                  const dayEvents = allEvents.filter((e) => eventCoversDay(e, key));
-                  const overflow = dayEvents.filter((e) => (lanes.get(e.id) ?? 0) >= MAX_VISIBLE_LANES).length;
-
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => openAdd(day)}
-                      className={[
-                        "relative min-h-[108px] border-r border-black/[0.04] px-1.5 pb-1 pt-1.5 text-left last:border-r-0",
-                        "transition-colors hover:bg-black/[0.02] focus:outline-none focus-visible:bg-black/[0.03]",
-                        !inMonth ? "bg-neutral-50/50" : "bg-white",
-                      ].join(" ")}
-                    >
-                      <span
-                        className={[
-                          "inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold",
-                          isToday
-                            ? "bg-brand-ink text-white"
-                            : inMonth
-                              ? "text-brand-ink"
-                              : "text-brand-muted/50",
-                        ].join(" ")}
-                      >
-                        {format(day, "d")}
-                      </span>
-                      <div style={{ height: barsHeight }} className="mt-1" aria-hidden />
-                      {overflow > 0 ? (
-                        <span className="absolute bottom-1 left-1.5 text-[10px] font-medium text-brand-muted">
-                          +{overflow} more
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-
-                {/* Continuous event bars layered over the week row */}
-                <div
-                  className="pointer-events-none absolute inset-x-0 top-9 bottom-0"
-                  aria-hidden={false}
-                >
-                  {weekEvents.map((ev) => {
-                    const lane = lanes.get(ev.id) ?? 0;
-                    if (lane >= MAX_VISIBLE_LANES) return null;
-
-                    const startIdx = Math.max(
-                      0,
-                      week.findIndex((d) => toDateKey(d) === ev.startDate)
-                    );
-                    const endIdxRaw = week.findIndex((d) => toDateKey(d) === ev.endDate);
-                    const endIdx = endIdxRaw === -1 ? 6 : endIdxRaw;
-                    const clippedStart =
-                      ev.startDate < weekStartKey
-                        ? 0
-                        : week.findIndex((d) => toDateKey(d) >= ev.startDate);
-                    const clippedEnd =
-                      ev.endDate > weekEndKey
-                        ? 6
-                        : week.findIndex((d) => toDateKey(d) === ev.endDate);
-
-                    const from = clippedStart === -1 ? startIdx : clippedStart;
-                    const to = clippedEnd === -1 ? endIdx : clippedEnd;
-                    if (from > to || from < 0) return null;
-
-                    const leftPct = (from / 7) * 100;
-                    const widthPct = ((to - from + 1) / 7) * 100;
-                    const top = lane * (LANE_HEIGHT + LANE_GAP);
-
-                    // Render per-day color segments inside the bar span
-                    const segments: { dayKey: string; idx: number }[] = [];
-                    for (let i = from; i <= to; i++) {
-                      segments.push({ dayKey: toDateKey(week[i]!), idx: i });
-                    }
+              <div key={weekStartKey} className="relative">
+                <div className="grid grid-cols-7">
+                  {week.map((day) => {
+                    const key = toDateKey(day);
+                    const inMonth = isSameMonth(day, cursor);
+                    const isToday = isSameDay(day, today);
+                    const dayEvents = allEvents.filter((e) => eventCoversDay(e, key));
+                    const apptCount = dayEvents.filter((e) => e.kind === "appointment").length;
+                    const scheduledCount = dayEvents.filter((e) => e.kind === "scheduled_trial").length;
 
                     return (
-                      <div
-                        key={ev.id}
-                        className="absolute flex px-0.5"
-                        style={{
-                          left: `${leftPct}%`,
-                          width: `${widthPct}%`,
-                          top,
-                          height: LANE_HEIGHT,
-                        }}
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => openAdd(day)}
+                        className={[
+                          "flex items-start justify-between gap-0.5 border-r border-black/[0.04] px-1.5 pb-1 pt-1.5 text-left last:border-r-0",
+                          "transition-colors hover:bg-black/[0.02] focus:outline-none focus-visible:bg-black/[0.03]",
+                          !inMonth ? "bg-neutral-50/50" : "bg-white",
+                        ].join(" ")}
                       >
-                        {segments.map((seg, i) => {
-                          const tone = segmentToneForDay(ev, seg.dayKey, todayKey);
-                          const isFirst = i === 0;
-                          const isLast = i === segments.length - 1;
-                          return (
-                            <button
-                              key={seg.dayKey}
-                              type="button"
-                              title={ev.title}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelected(ev);
-                              }}
-                              className={[
-                                "pointer-events-auto min-w-0 flex-1 truncate px-1.5 text-left text-[10px] font-semibold leading-[22px] transition hover:brightness-95",
-                                segmentClass(tone),
-                                isFirst ? "rounded-l-md" : "",
-                                isLast ? "rounded-r-md" : "",
-                                !isFirst ? "pl-0.5" : "",
-                              ].join(" ")}
+                        <span
+                          className={[
+                            "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                            isToday
+                              ? "bg-brand-ink text-white"
+                              : inMonth
+                                ? "text-brand-ink"
+                                : "text-brand-muted/50",
+                          ].join(" ")}
+                        >
+                          {format(day, "d")}
+                        </span>
+                        <span className="flex min-w-0 flex-wrap items-center justify-end gap-0.5 pt-0.5">
+                          {apptCount > 0 ? (
+                            <span
+                              className="rounded bg-sky-500 px-1 text-[9px] font-bold leading-4 text-white"
+                              title={`${apptCount} appointment${apptCount === 1 ? "" : "s"}`}
                             >
-                              {isFirst ? ev.title : "\u00a0"}
-                            </button>
-                          );
-                        })}
-                      </div>
+                              {apptCount}a
+                            </span>
+                          ) : null}
+                          {scheduledCount > 0 ? (
+                            <span
+                              className="rounded bg-neutral-400 px-1 text-[9px] font-bold leading-4 text-white"
+                              title={`${scheduledCount} scheduled trial${scheduledCount === 1 ? "" : "s"}`}
+                            >
+                              {scheduledCount}s
+                            </span>
+                          ) : null}
+                          {dayEvents.length > VIEWPORT_LANES ? (
+                            <span className="text-[9px] font-medium text-brand-muted">
+                              {dayEvents.length}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
                     );
                   })}
                 </div>
+
+                <div
+                  className={[
+                    "relative border-t border-black/[0.03]",
+                    needsScroll ? "overflow-y-auto overscroll-contain" : "overflow-hidden",
+                  ].join(" ")}
+                  style={{ maxHeight: viewportHeight }}
+                  onWheel={(e) => e.stopPropagation()}
+                >
+                  <div className="relative grid grid-cols-7" style={{ height: contentHeight }}>
+                    {week.map((day) => {
+                      const key = toDateKey(day);
+                      const inMonth = isSameMonth(day, cursor);
+                      return (
+                        <button
+                          key={`cell-${key}`}
+                          type="button"
+                          onClick={() => openAdd(day)}
+                          className={[
+                            "border-r border-black/[0.04] last:border-r-0 hover:bg-black/[0.02]",
+                            !inMonth ? "bg-neutral-50/40" : "bg-white",
+                          ].join(" ")}
+                          aria-label={`Add on ${key}`}
+                        />
+                      );
+                    })}
+
+                    {weekEvents.map((ev) => {
+                      const lane = lanes.get(ev.id) ?? 0;
+                      const clippedStart =
+                        ev.startDate < weekStartKey
+                          ? 0
+                          : week.findIndex((d) => toDateKey(d) >= ev.startDate);
+                      const clippedEnd =
+                        ev.endDate > weekEndKey
+                          ? 6
+                          : week.findIndex((d) => toDateKey(d) === ev.endDate);
+                      const from = clippedStart < 0 ? 0 : clippedStart;
+                      const to = clippedEnd < 0 ? 6 : clippedEnd;
+                      if (from > to) return null;
+
+                      const leftPct = (from / 7) * 100;
+                      const widthPct = ((to - from + 1) / 7) * 100;
+                      const top = 2 + lane * (LANE_HEIGHT + LANE_GAP);
+
+                      const segments: string[] = [];
+                      for (let i = from; i <= to; i++) segments.push(toDateKey(week[i]!));
+
+                      return (
+                        <div
+                          key={ev.id}
+                          className="absolute flex px-0.5"
+                          style={{
+                            left: `${leftPct}%`,
+                            width: `${widthPct}%`,
+                            top,
+                            height: LANE_HEIGHT,
+                          }}
+                        >
+                          {segments.map((dayKey, i) => {
+                            const tone = segmentToneForDay(ev, dayKey, todayKey);
+                            const isFirst = i === 0;
+                            const isLast = i === segments.length - 1;
+                            return (
+                              <button
+                                key={dayKey}
+                                type="button"
+                                title={`${ev.title}${ev.kind === "appointment" ? " · Appointment" : ""}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelected(ev);
+                                }}
+                                className={[
+                                  "pointer-events-auto min-w-0 flex-1 truncate px-1 text-left text-[9px] font-semibold leading-[15px] transition hover:brightness-95",
+                                  segmentClass(tone),
+                                  isFirst ? "rounded-l" : "",
+                                  isLast ? "rounded-r" : "",
+                                  !isFirst ? "pl-0.5" : "",
+                                ].join(" ")}
+                              >
+                                {isFirst ? ev.title : "\u00a0"}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {needsScroll ? (
+                  <p className="border-t border-black/[0.04] bg-neutral-50/80 px-2 py-0.5 text-center text-[9px] font-medium text-brand-muted">
+                    Scroll this week for {laneCount - VIEWPORT_LANES} more · appointments &amp; scheduled sit on top
+                  </p>
+                ) : null}
               </div>
             );
           })}
