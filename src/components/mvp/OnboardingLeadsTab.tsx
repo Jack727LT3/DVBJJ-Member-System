@@ -27,6 +27,7 @@ type OnboardingLeadsTabProps = {
   onTrialsChange: Dispatch<SetStateAction<StaffTrialRow[]>>;
   onGuestsChange: Dispatch<SetStateAction<StaffGuestRow[]>>;
   onMemberEnrolled?: (member: StaffMemberRow) => void;
+  onScheduleTrial?: (lead: { id: string; firstName: string; lastName: string }) => void;
 };
 
 export default function OnboardingLeadsTab({
@@ -36,6 +37,7 @@ export default function OnboardingLeadsTab({
   onTrialsChange,
   onGuestsChange,
   onMemberEnrolled,
+  onScheduleTrial,
 }: OnboardingLeadsTabProps) {
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     trials: true,
@@ -219,6 +221,7 @@ export default function OnboardingLeadsTab({
           onAddFormClose={() => setShowAddOutOfGymLead(false)}
           onPromotedToGuest={handlePromotedToGuest}
           onCountChange={setOutOfGymCount}
+          onScheduleTrial={onScheduleTrial}
         />
       </CollapsibleSection>
 

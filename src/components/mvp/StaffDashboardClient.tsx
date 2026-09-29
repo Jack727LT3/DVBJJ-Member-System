@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import DvbjjLogo from "@/components/DvbjjLogo";
+import CalendarTab from "@/components/mvp/CalendarTab";
 import OnboardingLeadsTab from "@/components/mvp/OnboardingLeadsTab";
 import StaffLoginPanel from "@/components/mvp/StaffLoginPanel";
 import StaffNotificationBell from "@/components/mvp/StaffNotificationBell";
@@ -17,8 +18,15 @@ import {
 import { clearStaffAuthentication, isStaffAuthenticated } from "@/lib/staffAuth";
 import { clearDismissedNotifications } from "@/lib/staffNotificationDismissals";
 import { buildStaffNotifications, type StaffNotification } from "@/lib/staffNotifications";
+import { fullName } from "@/lib/mvpShared";
 
-type StaffTab = "today" | "onboarding";
+type StaffTab = "today" | "onboarding" | "calendar";
+
+type CalendarPrefill = {
+  id: string;
+  name: string;
+  source: "guest" | "lead";
+};
 
 type StaffDashboardClientProps = {
   data: StaffDashboard;
@@ -31,6 +39,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
   const [members, setMembers] = useState<StaffMemberRow[]>(() => data.members);
   const [trials, setTrials] = useState(() => sortTrialsByUrgency(data.trials));
   const [guests, setGuests] = useState<StaffGuestRow[]>(() => data.guests);
+  const [calendarPrefill, setCalendarPrefill] = useState<CalendarPrefill | null>(null);
 
   useEffect(() => {
     setAuthenticated(isStaffAuthenticated());
@@ -75,7 +84,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
   return (
     <div className="flex min-h-screen flex-col bg-brand-cream font-sans text-brand-ink">
       <header className="border-b border-white/10 bg-brand-ink text-[#f4f2ee]">
-        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             <DvbjjLogo variant="on-dark" size="header" className="shrink-0" />
             <div className="hidden h-8 w-px bg-white/15 sm:block" aria-hidden />
@@ -108,7 +117,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-5xl flex-1 px-5 py-8">
+      <div className="mx-auto w-full max-w-6xl flex-1 px-5 py-8">
         {data.message ? (
           <div
             className="mb-6 rounded-xl border border-amber-200/80 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-950"
@@ -126,7 +135,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
             type="button"
             onClick={() => setActiveTab("today")}
             className={[
-              "flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
+              "flex-1 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors sm:px-4",
               activeTab === "today"
                 ? "bg-brand-ink text-white shadow-sm"
                 : "text-brand-muted hover:bg-black/[0.03] hover:text-brand-ink",
@@ -138,13 +147,25 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
             type="button"
             onClick={() => setActiveTab("onboarding")}
             className={[
-              "flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
+              "flex-1 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors sm:px-4",
               activeTab === "onboarding"
                 ? "bg-brand-ink text-white shadow-sm"
                 : "text-brand-muted hover:bg-black/[0.03] hover:text-brand-ink",
             ].join(" ")}
           >
             Member Onboarding
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("calendar")}
+            className={[
+              "flex-1 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors sm:px-4",
+              activeTab === "calendar"
+                ? "bg-brand-ink text-white shadow-sm"
+                : "text-brand-muted hover:bg-black/[0.03] hover:text-brand-ink",
+            ].join(" ")}
+          >
+            Calendar
           </button>
         </nav>
 
@@ -157,7 +178,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
               setGuests((prev) => [guest, ...prev.filter((g) => g.id !== guest.id)]);
             }}
           />
-        ) : (
+        ) : activeTab === "onboarding" ? (
           <OnboardingLeadsTab
             data={data}
             trials={trials}
@@ -165,6 +186,21 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
             onTrialsChange={setTrials}
             onGuestsChange={setGuests}
             onMemberEnrolled={handleMemberEnrolled}
+            onScheduleTrial={(lead) => {
+              setCalendarPrefill({
+                id: lead.id,
+                name: fullName(lead.firstName, lead.lastName),
+                source: "lead",
+              });
+              setActiveTab("calendar");
+            }}
+          />
+        ) : (
+          <CalendarTab
+            trials={trials}
+            guests={guests}
+            schedulePrefill={calendarPrefill}
+            onSchedulePrefillConsumed={() => setCalendarPrefill(null)}
           />
         )}
 

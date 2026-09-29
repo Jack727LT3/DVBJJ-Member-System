@@ -49,6 +49,7 @@ type OutOfStoreLeadsTabProps = {
   onAddFormClose: () => void;
   onPromotedToGuest?: (guest: StaffGuestRow) => void;
   onCountChange?: (count: number) => void;
+  onScheduleTrial?: (lead: { id: string; firstName: string; lastName: string }) => void;
 };
 
 export default function OutOfStoreLeadsTab({
@@ -57,6 +58,7 @@ export default function OutOfStoreLeadsTab({
   onAddFormClose,
   onPromotedToGuest,
   onCountChange,
+  onScheduleTrial,
 }: OutOfStoreLeadsTabProps) {
   const [leads, setLeads] = useState<OutOfStoreLead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,13 +197,37 @@ export default function OutOfStoreLeadsTab({
           }
           signupNotes={selectedLead.notes}
           footer={
-            <PromoteToGuestFooter
-              lead={selectedLead}
-              onPromoted={(guest) => {
-                handlePromotedToGuest(guest);
-                setSelectedLeadId(null);
-              }}
-            />
+            <div className="space-y-6">
+              {onScheduleTrial ? (
+                <div>
+                  <h3 className="text-sm font-semibold text-brand-ink">Schedule trial</h3>
+                  <p className="mt-1 text-sm text-brand-muted">
+                    Place a future trial on the calendar — grey until the start day, then green / purple / red.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onScheduleTrial({
+                        id: selectedLead.id,
+                        firstName: selectedLead.firstName,
+                        lastName: selectedLead.lastName,
+                      });
+                      setSelectedLeadId(null);
+                    }}
+                    className="mt-3 w-full rounded-lg border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-neutral-50"
+                  >
+                    Schedule on calendar
+                  </button>
+                </div>
+              ) : null}
+              <PromoteToGuestFooter
+                lead={selectedLead}
+                onPromoted={(guest) => {
+                  handlePromotedToGuest(guest);
+                  setSelectedLeadId(null);
+                }}
+              />
+            </div>
           }
           onClose={() => setSelectedLeadId(null)}
           onLeadUpdate={() => {}}
