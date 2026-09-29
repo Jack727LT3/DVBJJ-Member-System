@@ -1,0 +1,16 @@
+# A string used to distinguish different Supabase projects on the same host.
+project_id = "dvbjj-member-system"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[db.migrations]
+enabled = true

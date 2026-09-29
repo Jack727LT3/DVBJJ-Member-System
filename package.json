@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:push": "node scripts/push-supabase-migrations.mjs",
+    "db:push:pending": "node scripts/push-supabase-migrations.mjs 0021 0022"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",
@@ -25,6 +27,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
+    "supabase": "^2.118.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.1"
