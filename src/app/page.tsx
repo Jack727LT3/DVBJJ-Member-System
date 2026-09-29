@@ -44,7 +44,8 @@ type Outcome =
   | { kind: "active"; firstName: string; lastTrainedLine: string }
   | { kind: "trial"; title: string; body: string }
   | { kind: "message"; title: string; body: string }
-  | { kind: "guestWelcome"; firstName: string; trialDaysLeft: number | null };
+  | { kind: "guestWelcome"; firstName: string; trialDaysLeft: number | null }
+  | { kind: "multiCheckIn"; names: string[]; failedNames: string[] };
 
 const GUEST_WELCOME_TAGLINE = "Please see the front desk to get set up.";
 
@@ -120,6 +121,7 @@ export default function KioskHome() {
   const [pendingCheckInAfterWaiver, setPendingCheckInAfterWaiver] = useState(false);
   const [isFamilySignup, setIsFamilySignup] = useState(false);
   const [waiverSubmitting, setWaiverSubmitting] = useState(false);
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
   const resetTimerRef = useRef<number | null>(null);
 
   const [phoneHint, setPhoneHint] = useState<string | null>(null);
@@ -152,18 +154,16 @@ export default function KioskHome() {
     setPendingGuestPersonId(null);
     setPendingCheckInAfterWaiver(false);
     setIsFamilySignup(false);
+    setSelectedProfileIds([]);
     clearPhoneLookupState();
     clearGuestFormState();
     setSearchError(null);
     setMode("phoneEntry");
   };
 
+  /** Out-of-store leads need profile + waiver once before first visit. */
   function needsOutOfStoreOnboarding(r: KioskSearchResult) {
-    return (
-      r.status === "lead" &&
-      r.leadSource === "out_of_store" &&
-      (!r.hasSignedWaiver || (r.totalCheckIns ?? 0) === 0)
-    );
+    return r.status === "lead" && r.leadSource === "out_of_store" && !r.hasSignedWaiver;
   }
 
   function startOutOfStoreOnboarding(r: KioskSearchResult) {
@@ -236,6 +236,7 @@ export default function KioskHome() {
 
       setSearchError(null);
       setResults((json.results ?? []) as KioskSearchResult[]);
+      setSelectedProfileIds([]);
       setLastLookupKey(lookupQueryKey(phone));
       setMode("profilePick");
     } catch {
@@ -266,6 +267,53 @@ export default function KioskHome() {
     return r.memberState !== null && r.memberState !== "active";
   };
 
+  const applyCheckInOutcome = (r: KioskSearchResult, json: CheckInResponse) => {
+    const welcomeName = sanitizeName(r.firstName) || "there";
+
+    if (
+      (r.status === "member" && (r.memberState === "active" || r.memberState === null)) ||
+      r.status === "professor"
+    ) {
+      setOutcome({
+        kind: "active",
+        firstName: welcomeName,
+        lastTrainedLine: formatLastTrainedLine(r.lastCheckInAt),
+      });
+    } else if (r.status === "trial" || r.status === "lead") {
+      setOutcome({
+        kind: "trial",
+        title: json.messageTitle,
+        body: json.messageBody,
+      });
+    } else {
+      setOutcome({
+        kind: "message",
+        title: json.messageTitle,
+        body: json.messageBody,
+      });
+    }
+
+    setMode("outcome");
+    startAutoReset();
+  };
+
+  const performKioskCheckIn = async (r: KioskSearchResult): Promise<CheckInResponse> => {
+    const res = await fetch("/api/kiosk/check-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ personId: r.id }),
+    });
+
+    const json = (await res.json()) as CheckInResponse | { error?: string };
+    if (!res.ok || !("messageTitle" in json)) {
+      const errorField = (json as { error?: unknown }).error;
+      const errMsg: string | undefined = typeof errorField === "string" ? errorField : undefined;
+      throw new Error(errMsg ?? `Check-in failed (${res.status})`);
+    }
+    return json;
+  };
+
   const handleCheckInResult = async (r: KioskSearchResult) => {
     clearResetTimer();
     setSearchError(null);
@@ -284,52 +332,76 @@ export default function KioskHome() {
 
     setSearchLoading(true);
     try {
-      const res = await fetch("/api/kiosk/check-in", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({ personId: r.id }),
-      });
-
-      const json = (await res.json()) as CheckInResponse | { error?: string };
-      if (!res.ok || !("messageTitle" in json)) {
-        const errorField = (json as { error?: unknown }).error;
-        const errMsg: string | undefined = typeof errorField === "string" ? errorField : undefined;
-        throw new Error(errMsg ?? `Check-in failed (${res.status})`);
-      }
-
-      const welcomeName = sanitizeName(r.firstName) || "there";
-
-      if (
-        (r.status === "member" && (r.memberState === "active" || r.memberState === null)) ||
-        r.status === "professor"
-      ) {
-        setOutcome({
-          kind: "active",
-          firstName: welcomeName,
-          lastTrainedLine: formatLastTrainedLine(r.lastCheckInAt),
-        });
-      } else if (r.status === "trial") {
-        setOutcome({
-          kind: "trial",
-          title: json.messageTitle,
-          body: json.messageBody,
-        });
-      } else {
-        setOutcome({
-          kind: "message",
-          title: json.messageTitle,
-          body: json.messageBody,
-        });
-      }
-
-      setMode("outcome");
-      startAutoReset();
+      const json = await performKioskCheckIn(r);
+      applyCheckInOutcome(r, json);
     } catch (err: unknown) {
       setSearchError(err instanceof Error ? err.message : "Check-in failed");
     } finally {
       setSearchLoading(false);
     }
+  };
+
+  const toggleProfileSelected = (id: string) => {
+    setSelectedProfileIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleMultiCheckIn = async () => {
+    const selected = results.filter((r) => selectedProfileIds.includes(r.id));
+    if (selected.length === 0) return;
+
+    if (selected.length === 1) {
+      await handleCheckInResult(selected[0]!);
+      return;
+    }
+
+    const needingOnboarding = selected.filter(needsOutOfStoreOnboarding);
+    const onHold = selected.filter(memberNeedsFrontDesk);
+    const ready = selected.filter((r) => !needsOutOfStoreOnboarding(r) && !memberNeedsFrontDesk(r));
+
+    if (ready.length === 0) {
+      if (needingOnboarding.length === 1) {
+        startOutOfStoreOnboarding(needingOnboarding[0]!);
+        return;
+      }
+      if (onHold.length > 0) {
+        setOutcome({ kind: "membershipHold" });
+        setMode("outcome");
+        startAutoReset();
+        return;
+      }
+      setSearchError("Complete each new lead's profile one at a time.");
+      return;
+    }
+
+    clearResetTimer();
+    setSearchError(null);
+    setSearchLoading(true);
+
+    const okNames: string[] = [];
+    const failedNames: string[] = [];
+
+    for (const r of ready) {
+      try {
+        await performKioskCheckIn(r);
+        okNames.push(sanitizeName(r.firstName) || fullName(r));
+      } catch {
+        failedNames.push(sanitizeName(r.firstName) || fullName(r));
+      }
+    }
+
+    setSearchLoading(false);
+    setSelectedProfileIds([]);
+
+    if (okNames.length === 0) {
+      setSearchError("Couldn't check anyone in. Please see the front desk.");
+      return;
+    }
+
+    setOutcome({ kind: "multiCheckIn", names: okNames, failedNames });
+    setMode("outcome");
+    startAutoReset();
   };
 
   const submitGuestCheckIn = async (e?: FormEvent<HTMLFormElement>) => {
@@ -357,14 +429,16 @@ export default function KioskHome() {
             email: guestEmail.trim() || null,
           }),
         });
+        // Continue to waiver even if profile patch soft-fails — check-in still needs the waiver step.
         if (!res.ok) {
-          setSearchError(guestFailMsg);
-          return;
+          /* Profile patch is best-effort; waiver + check-in still proceed. */
         }
         setPendingGuestFirstName(welcomeFirst);
         setMode("guestWaiver");
       } catch {
-        setSearchError(guestFailMsg);
+        // Still continue — denial here blocked trial starts for arriving leads.
+        setPendingGuestFirstName(welcomeFirst);
+        setMode("guestWaiver");
       } finally {
         setSearchLoading(false);
       }
@@ -449,17 +523,32 @@ export default function KioskHome() {
       setPendingCheckInAfterWaiver(false);
       setPendingGuestPersonId(null);
       setIsFamilySignup(false);
-      const r = results.find((x) => x.id === personId) ?? {
+      const r: KioskSearchResult = results.find((x) => x.id === personId) ?? {
         id: personId,
         firstName: firstNameGuest,
         lastName: lastNameGuest,
         phoneMasked: "",
-        status: "lead" as const,
+        status: "lead",
         memberState: null,
         daysLeftInTrial: null,
         lastCheckInAt: null,
+        leadSource: "out_of_store",
+        hasSignedWaiver: true,
+        totalCheckIns: 0,
+        email: guestEmail.trim() || null,
       };
-      await handleCheckInResult(r);
+      // Mark waiver done so we don't loop back into onboarding.
+      const ready: KioskSearchResult = { ...r, hasSignedWaiver: true, firstName: firstNameGuest, lastName: lastNameGuest };
+      setSearchLoading(true);
+      try {
+        const json = await performKioskCheckIn(ready);
+        applyCheckInOutcome({ ...ready, status: "lead" }, json);
+      } catch (err: unknown) {
+        setSearchError(err instanceof Error ? err.message : "Check-in failed");
+        setMode("profilePick");
+      } finally {
+        setSearchLoading(false);
+      }
       return;
     }
 
@@ -492,6 +581,7 @@ export default function KioskHome() {
     setLastLookupKey(null);
     setPendingCheckInAfterWaiver(false);
     setIsFamilySignup(false);
+    setSelectedProfileIds([]);
     setMode("phoneEntry");
   };
 
@@ -576,6 +666,31 @@ export default function KioskHome() {
             </KioskSnakeBorderCard>
           ) : null}
 
+          {outcome.kind === "multiCheckIn" ? (
+            <KioskSnakeBorderCard fadeIn innerClassName="p-8">
+              <div className="text-2xl font-semibold text-brand-ink">
+                {outcome.names.length === 1
+                  ? `Welcome, ${outcome.names[0]}!`
+                  : "You\u2019re all checked in"}
+              </div>
+              {outcome.names.length > 1 ? (
+                <ul className="mt-4 space-y-1 text-left text-base text-brand-ink">
+                  {outcome.names.map((name) => (
+                    <li key={name} className="font-medium">
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <p className="mt-3 text-sm text-brand-muted">Have a great class.</p>
+              {outcome.failedNames.length > 0 ? (
+                <p className="mt-3 text-sm text-red-700">
+                  Couldn&apos;t check in: {outcome.failedNames.join(", ")}. Please see the front desk.
+                </p>
+              ) : null}
+            </KioskSnakeBorderCard>
+          ) : null}
+
           {outcome.kind === "message" ? (
             <KioskSnakeBorderCard fadeIn innerClassName="p-8">
               <div className="text-2xl font-semibold text-brand-ink">{outcome.title}</div>
@@ -647,7 +762,13 @@ export default function KioskHome() {
                       : "Create your guest account"}
               </h1>
               <p className="mt-2 text-sm leading-relaxed text-brand-muted">
-                {guestSignupMode === "trial" || isFamilySignup ? (
+                {pendingCheckInAfterWaiver ? (
+                  <>
+                    Confirm the participant&apos;s information — the person who will train. If you&apos;re a parent
+                    enrolling a child, use your child&apos;s name here, not yours. Then tap{" "}
+                    <span className="font-medium text-brand-ink">Start your 7 day free trial</span> to continue.
+                  </>
+                ) : guestSignupMode === "trial" || isFamilySignup ? (
                   <>
                     Enter the participant&apos;s information — the person who will train. If you&apos;re a parent
                     enrolling a child, use your child&apos;s name here, not yours. Then tap{" "}
@@ -740,7 +861,13 @@ export default function KioskHome() {
                   disabled={searchLoading || !isGuestFormComplete(firstNameGuest, lastNameGuest, phoneGuest, guestEmail)}
                   className="w-full rounded-lg bg-brand-red px-4 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-red-hover disabled:cursor-not-allowed disabled:opacity-55"
                 >
-                  {searchLoading ? "Checking you in…" : "Enter"}
+                  {searchLoading
+                    ? pendingCheckInAfterWaiver
+                      ? "Saving…"
+                      : "Checking you in…"
+                    : pendingCheckInAfterWaiver
+                      ? "Start your 7 day free trial"
+                      : "Enter"}
                 </button>
               </form>
 
@@ -801,35 +928,83 @@ export default function KioskHome() {
               {results.length > 0 ? (
                 <div className="mt-6">
                   <p className="mb-3 text-sm text-brand-muted">
-                    {results.length > 1 ? "Tap the row that matches you." : "Tap below to check in."}
+                    {results.length > 1
+                      ? "Check everyone who is training today, then tap Check in."
+                      : "Tap below to check in."}
                   </p>
                   <div className="overflow-hidden rounded-xl border border-black/10">
-                    {results.map((r) => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        onClick={() => handleCheckInResult(r)}
-                        disabled={searchLoading}
-                        className="flex w-full border-b border-black/10 px-4 py-4 text-left last:border-b-0 hover:bg-neutral-100 active:bg-neutral-200/80 disabled:opacity-60"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="text-base font-semibold text-brand-ink">{fullName(r)}</div>
-                          <div className="mt-0.5 text-sm text-brand-muted">{phoneDisplayLine}</div>
-                          <div className="mt-1.5 text-xs font-medium uppercase tracking-wide text-brand-muted">
-                            {r.status === "member"
-                              ? "Member"
-                              : r.status === "professor"
-                                ? "Coach"
-                                : r.status === "trial"
-                                  ? "Trial"
-                                  : r.status === "guest"
-                                    ? "Guest"
-                                    : "Lead"}
+                    {results.map((r) => {
+                      const multi = results.length > 1;
+                      const selected = selectedProfileIds.includes(r.id);
+                      return (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => {
+                            if (multi) {
+                              toggleProfileSelected(r.id);
+                            } else {
+                              void handleCheckInResult(r);
+                            }
+                          }}
+                          disabled={searchLoading}
+                          className={`flex w-full items-start gap-3 border-b border-black/10 px-4 py-4 text-left last:border-b-0 disabled:opacity-60 ${
+                            selected
+                              ? "bg-brand-red/[0.06]"
+                              : "hover:bg-neutral-100 active:bg-neutral-200/80"
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-base font-semibold text-brand-ink">{fullName(r)}</div>
+                            <div className="mt-0.5 text-sm text-brand-muted">{phoneDisplayLine}</div>
+                            <div className="mt-1.5 text-xs font-medium uppercase tracking-wide text-brand-muted">
+                              {r.status === "member"
+                                ? "Member"
+                                : r.status === "professor"
+                                  ? "Coach"
+                                  : r.status === "trial"
+                                    ? "Trial"
+                                    : r.status === "guest"
+                                      ? "Guest"
+                                      : "Incoming Member"}
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    ))}
+                          {multi ? (
+                            <span
+                              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded border ${
+                                selected
+                                  ? "border-brand-red bg-brand-red text-white"
+                                  : "border-black/25 bg-white"
+                              }`}
+                              aria-hidden
+                            >
+                              {selected ? (
+                                <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                  <path d="M3 8.5 6.5 12 13 4" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              ) : null}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
                   </div>
+                  {results.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleMultiCheckIn()}
+                      disabled={searchLoading || selectedProfileIds.length === 0}
+                      className="mt-4 w-full rounded-lg bg-brand-red px-4 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-red-hover disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      {searchLoading
+                        ? "Checking in…"
+                        : selectedProfileIds.length === 0
+                          ? "Select who is checking in"
+                          : selectedProfileIds.length === 1
+                            ? "Check in"
+                            : `Check in (${selectedProfileIds.length})`}
+                    </button>
+                  ) : null}
                   <div className="mt-4 space-y-2 border-t border-black/[0.06] pt-4">
                     <p className="text-sm text-brand-muted">Family on this phone?</p>
                     <button

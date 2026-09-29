@@ -63,6 +63,10 @@ export default function TrialProfilePanel({
   const [enrollError, setEnrollError] = useState<string | null>(null);
   const [moveToGuestSaving, setMoveToGuestSaving] = useState(false);
   const [moveToGuestError, setMoveToGuestError] = useState<string | null>(null);
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [extendDate, setExtendDate] = useState(() => trial.trialEndDate.slice(0, 10));
+  const [extendSaving, setExtendSaving] = useState(false);
+  const [extendError, setExtendError] = useState<string | null>(null);
 
   const expired = isTrialExpired(trial);
   const showContactComplete = contactMode && expired;
@@ -153,6 +157,44 @@ export default function TrialProfilePanel({
       parents: parents,
       notes: trial.notes,
     };
+  }
+
+  async function submitExtend(e: FormEvent) {
+    e.preventDefault();
+    setExtendError(null);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(extendDate)) {
+      setExtendError("Pick a valid end date.");
+      return;
+    }
+    setExtendSaving(true);
+    try {
+      const res = await fetch(`/api/mvp/trials/${trial.id}/extend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trialEndDate: extendDate }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setExtendError(json.error ?? "Could not extend trial.");
+        return;
+      }
+      const end = (json.trial?.trialEndDate as string) ?? `${extendDate}T23:59:59.999Z`;
+      const days =
+        typeof json.trial?.daysRemaining === "number"
+          ? json.trial.daysRemaining
+          : Math.ceil((new Date(end).getTime() - Date.now()) / 86400000);
+      onTrialUpdate({
+        ...trial,
+        trialEndDate: end,
+        daysRemaining: days,
+        trialStartDate: json.trial?.trialStartDate ?? trial.trialStartDate,
+      });
+      setExtendOpen(false);
+    } catch {
+      setExtendError("Something went wrong.");
+    } finally {
+      setExtendSaving(false);
+    }
   }
 
   async function moveToGuest() {
@@ -281,7 +323,7 @@ export default function TrialProfilePanel({
                       {" · "}
                     </>
                   ) : null}
-                  Ended <span className="text-brand-ink">{formatDate(trial.trialEndDate)}</span>
+                  Ends <span className="text-brand-ink">{formatDate(trial.trialEndDate)}</span>
                   {" · "}
                   <span className={expired ? "font-medium text-brand-red" : "font-medium text-brand-ink"}>
                     {statusLabel}
@@ -393,9 +435,50 @@ export default function TrialProfilePanel({
           </div>
 
           {!editing && !showContactComplete ? (
-            <div className="shrink-0 border-t border-black/[0.06] bg-neutral-50/90 px-5 py-3">
+            <div className="shrink-0 space-y-2 border-t border-black/[0.06] bg-neutral-50/90 px-5 py-3">
               {!enrollOpen ? (
-                <div className="space-y-2">
+                <>
+                  {!extendOpen ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExtendDate(trial.trialEndDate.slice(0, 10));
+                        setExtendError(null);
+                        setExtendOpen(true);
+                      }}
+                      className="w-full rounded-lg border border-black/15 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-neutral-50"
+                    >
+                      Extend Trial
+                    </button>
+                  ) : (
+                    <form className="space-y-2 rounded-lg border border-black/10 bg-white p-3" onSubmit={submitExtend}>
+                      <p className="text-sm font-semibold text-brand-ink">New trial end date</p>
+                      <input
+                        type="date"
+                        value={extendDate}
+                        onChange={(e) => setExtendDate(e.target.value)}
+                        className={inputClass}
+                        required
+                      />
+                      {extendError ? <p className="text-xs text-red-700">{extendError}</p> : null}
+                      <div className="flex gap-2">
+                        <button
+                          type="submit"
+                          disabled={extendSaving}
+                          className="flex-1 rounded-lg bg-brand-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                        >
+                          {extendSaving ? "Saving…" : "Save new end date"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExtendOpen(false)}
+                          className="rounded-lg border border-black/10 px-4 py-2 text-sm"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
                   <button
                     type="button"
                     disabled={moveToGuestSaving}
@@ -412,7 +495,7 @@ export default function TrialProfilePanel({
                   >
                     Enroll As Member
                   </button>
-                </div>
+                </>
               ) : (
                 <form className="space-y-3" onSubmit={submitEnroll}>
                   <p className="text-sm font-semibold text-brand-ink">New member details</p>

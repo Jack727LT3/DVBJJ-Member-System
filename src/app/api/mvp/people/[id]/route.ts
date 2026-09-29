@@ -53,24 +53,56 @@ export async function PATCH(req: Request, context: RouteContext) {
       p_date_of_birth: body.dateOfBirth ?? null,
       p_member_age_group: body.ageGroup ?? null,
     });
-    if (error) throw error;
 
-    const result = data as { ok: boolean; error?: string; person?: Record<string, unknown> };
-    if (!result.ok || !result.person) {
-      return NextResponse.json({ error: result.error ?? "Could not update." }, { status: 400 });
+    if (!error && data) {
+      const result = data as { ok: boolean; error?: string; person?: Record<string, unknown> };
+      if (result.ok && result.person) {
+        const p = result.person;
+        return NextResponse.json({
+          source: "live",
+          person: {
+            id: p.id,
+            firstName: p.first_name,
+            lastName: p.last_name,
+            phone: p.phone,
+            email: p.email,
+            dateOfBirth: p.date_of_birth,
+            ageGroup: p.member_age_group === "child" ? "child" : "adult",
+          },
+        });
+      }
     }
 
-    const p = result.person;
+    // Fallback when RPC is missing or rejects — direct update for kiosk/staff profile edits.
+    const patch: Record<string, unknown> = {};
+    if (body.firstName !== undefined) patch.first_name = body.firstName;
+    if (body.lastName !== undefined) patch.last_name = body.lastName;
+    if (body.phone !== undefined) patch.phone = normalizePhone(body.phone);
+    if (body.email !== undefined) patch.email = body.email === "" || body.email === null ? null : body.email;
+    if (body.dateOfBirth !== undefined) patch.date_of_birth = body.dateOfBirth;
+    if (body.ageGroup !== undefined) patch.member_age_group = body.ageGroup;
+
+    const { data: updated, error: updateError } = await supabase
+      .from("people")
+      .update(patch)
+      .eq("id", id)
+      .select("id, first_name, last_name, phone, email, date_of_birth, member_age_group")
+      .maybeSingle();
+
+    if (updateError || !updated) {
+      return NextResponse.json({ error: "Could not update." }, { status: 400 });
+    }
+
     return NextResponse.json({
       source: "live",
       person: {
-        id: p.id,
-        firstName: p.first_name,
-        lastName: p.last_name,
-        phone: p.phone,
-        email: p.email,
-        dateOfBirth: p.date_of_birth,
-        ageGroup: p.member_age_group === "child" ? "child" : "adult",
+        id: updated.id,
+        firstName: updated.first_name,
+        lastName: updated.last_name,
+        phone: updated.phone,
+        email: updated.email,
+        dateOfBirth: updated.date_of_birth,
+        ageGroup: updated.member_age_group === "child" ? "child" : "adult",
       },
     });
   } catch {
