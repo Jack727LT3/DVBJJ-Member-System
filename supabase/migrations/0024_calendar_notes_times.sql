@@ -358,3 +358,4 @@ begin
   return jsonb_build_object('ok', true, 'activated', v_count);
 end;
 $$;
+alter table public.calendar_trial_overlays enable row level security;

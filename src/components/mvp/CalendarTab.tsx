@@ -33,7 +33,6 @@ import {
   type CalendarEventKind,
   type CalendarTrialOverlay,
 } from "@/lib/staffCalendar";
-import { fullName } from "@/lib/mvpShared";
 import { formatPhoneDisplay } from "@/lib/phone";
 import type { OutOfStoreLead } from "@/lib/outOfStoreLeads";
 import type { StaffGuestRow, StaffMemberRow, StaffTrialRow } from "@/lib/staffDashboard";
