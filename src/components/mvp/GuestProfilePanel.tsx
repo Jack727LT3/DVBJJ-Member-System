@@ -8,6 +8,7 @@ import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
 import { buildMemberFromGuestEnroll, type GuestEnrollPayload } from "@/lib/guestEnroll";
 import AddParentDialog from "@/components/mvp/AddParentDialog";
 import PersonParentsSection from "@/components/mvp/PersonParentsSection";
+import { suggestedMonthlyPaymentForPlan } from "@/lib/membershipAgreementCopy";
 import { beltSelectOptions, formatDate, formatMemberAge, formatWhen, fullName } from "@/lib/mvpShared";
 import type { StaffMemberParent } from "@/lib/staffDashboard";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
@@ -40,10 +41,17 @@ export default function GuestProfilePanel({
   const [dateOfBirth, setDateOfBirth] = useState(guest.dateOfBirth ?? "");
   const [profileAgeGroup, setProfileAgeGroup] = useState<MemberAgeGroup>(guest.ageGroup ?? "adult");
 
-  const [enrollOpen, setEnrollOpen] = useState(false);
+  const pending = guest.pendingAgreement ?? null;
+  const suggestedPay = pending ? suggestedMonthlyPaymentForPlan(pending.planId) : null;
+  const suggestedAge: MemberAgeGroup =
+    pending?.planId.startsWith("youth") ? "child" : guest.ageGroup ?? "adult";
+
+  const [enrollOpen, setEnrollOpen] = useState(Boolean(pending));
   const [beltColor, setBeltColor] = useState("White");
-  const [monthlyPayment, setMonthlyPayment] = useState("");
-  const [ageGroup, setAgeGroup] = useState<MemberAgeGroup>(guest.ageGroup ?? "adult");
+  const [monthlyPayment, setMonthlyPayment] = useState(
+    suggestedPay != null ? String(suggestedPay) : ""
+  );
+  const [ageGroup, setAgeGroup] = useState<MemberAgeGroup>(suggestedAge);
   const [enrollDob, setEnrollDob] = useState(guest.dateOfBirth ?? "");
   const [parentName, setParentName] = useState("");
   const [parentPhone, setParentPhone] = useState("");
@@ -59,6 +67,23 @@ export default function GuestProfilePanel({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, editing]);
+
+  useEffect(() => {
+    const nextPending = guest.pendingAgreement ?? null;
+    const nextSuggested = nextPending ? suggestedMonthlyPaymentForPlan(nextPending.planId) : null;
+    setEnrollOpen(Boolean(nextPending));
+    setMonthlyPayment(nextSuggested != null ? String(nextSuggested) : "");
+    setAgeGroup(nextPending?.planId.startsWith("youth") ? "child" : guest.ageGroup ?? "adult");
+    setEnrollDob(guest.dateOfBirth ?? "");
+    setParents(guest.parents ?? []);
+    setFirstName(guest.firstName);
+    setLastName(guest.lastName);
+    setPhone(guest.phone);
+    setEmail(guest.email ?? "");
+    setDateOfBirth(guest.dateOfBirth ?? "");
+    setProfileAgeGroup(guest.ageGroup ?? "adult");
+    setEnrollError(null);
+  }, [guest]);
 
   async function saveProfile(e: FormEvent) {
     e.preventDefault();
@@ -185,7 +210,19 @@ export default function GuestProfilePanel({
                       <span className="font-medium text-brand-ink">Trial completed</span>
                     </>
                   ) : null}
+                  {pending ? (
+                    <>
+                      {" · "}
+                      <span className="font-medium text-brand-red">Agreement signed</span>
+                    </>
+                  ) : null}
                 </p>
+                {pending ? (
+                  <p className="mt-2 rounded-lg border border-brand-red/20 bg-brand-red/[0.06] px-3 py-2 text-sm text-brand-ink">
+                    Chose <span className="font-semibold">{pending.planLabel}</span>. Confirm their
+                    payment is started below to move them into Members.
+                  </p>
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
                 {!editing ? (
@@ -334,11 +371,13 @@ export default function GuestProfilePanel({
                   onClick={() => setEnrollOpen(true)}
                   className="w-full rounded-lg bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-black"
                 >
-                  Enroll As Member
+                  {pending ? "Confirm Payment & Move To Members" : "Enroll As Member"}
                 </button>
               ) : (
                 <form className="space-y-3" onSubmit={submitEnroll}>
-                  <p className="text-sm font-semibold text-brand-ink">New member details</p>
+                  <p className="text-sm font-semibold text-brand-ink">
+                    {pending ? "Confirm payment plan started" : "New member details"}
+                  </p>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">$ / Month</span>
@@ -386,7 +425,11 @@ export default function GuestProfilePanel({
                       disabled={enrollSaving}
                       className="flex-1 rounded-lg bg-brand-red px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     >
-                      {enrollSaving ? "Enrolling…" : "Confirm Enrollment"}
+                      {enrollSaving
+                        ? "Saving…"
+                        : pending
+                          ? "Payment Started — Move To Members"
+                          : "Confirm Enrollment"}
                     </button>
                     <button
                       type="button"

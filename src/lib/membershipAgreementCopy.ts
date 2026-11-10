@@ -27,6 +27,22 @@ export const MEMBERSHIP_PLAN_OPTIONS = [
 
 export type MembershipPlanId = (typeof MEMBERSHIP_PLAN_OPTIONS)[number]["id"];
 
+/** Suggested monthly rate for staff enrollment when a plan was chosen at the kiosk. */
+export function suggestedMonthlyPaymentForPlan(planId: string): number | null {
+  switch (planId) {
+    case "adult_monthly":
+      return 190;
+    case "youth_monthly":
+      return 140;
+    case "adult_annual":
+      return 157;
+    case "youth_annual":
+      return 119;
+    default:
+      return null;
+  }
+}
+
 export const MEMBERSHIP_DISCOUNT_NOTE =
   "Ask about our discounts for military, teachers, and college students!";
 

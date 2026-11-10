@@ -72,6 +72,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
 
   function handleMemberEnrolled(member: StaffMemberRow) {
     setMembers((prev) => sortMembersLeastRecentFirst([member, ...prev.filter((m) => m.id !== member.id)]));
+    setActiveTab("today");
   }
 
   function handleNotificationSelect(notification: StaffNotification) {

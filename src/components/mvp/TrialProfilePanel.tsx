@@ -8,6 +8,7 @@ import PersonParentsSection from "@/components/mvp/PersonParentsSection";
 import MembershipAgreementHistorySection from "@/components/mvp/MembershipAgreementHistorySection";
 import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
 import { buildMemberFromTrialEnroll, type GuestEnrollPayload } from "@/lib/guestEnroll";
+import { suggestedMonthlyPaymentForPlan } from "@/lib/membershipAgreementCopy";
 import { beltSelectOptions, formatDate, formatMemberAge, formatTrialDaysLeft, fullName } from "@/lib/mvpShared";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/phone";
 import {
@@ -55,10 +56,16 @@ export default function TrialProfilePanel({
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [showAddParent, setShowAddParent] = useState(false);
   const [parents, setParents] = useState<StaffMemberParent[]>(trial.parents ?? []);
-  const [enrollOpen, setEnrollOpen] = useState(false);
+  const pending = trial.pendingAgreement ?? null;
+  const suggestedPay = pending ? suggestedMonthlyPaymentForPlan(pending.planId) : null;
+  const suggestedAge: MemberAgeGroup = pending?.planId.startsWith("youth") ? "child" : "adult";
+
+  const [enrollOpen, setEnrollOpen] = useState(Boolean(pending));
   const [beltColor, setBeltColor] = useState("White");
-  const [monthlyPayment, setMonthlyPayment] = useState("");
-  const [ageGroup, setAgeGroup] = useState<MemberAgeGroup>("adult");
+  const [monthlyPayment, setMonthlyPayment] = useState(
+    suggestedPay != null ? String(suggestedPay) : ""
+  );
+  const [ageGroup, setAgeGroup] = useState<MemberAgeGroup>(suggestedAge);
   const [enrollDob, setEnrollDob] = useState(trial.dateOfBirth ?? "");
   const [enrollSaving, setEnrollSaving] = useState(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
@@ -495,12 +502,19 @@ export default function TrialProfilePanel({
                     onClick={() => setEnrollOpen(true)}
                     className="w-full rounded-lg bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-black"
                   >
-                    Enroll As Member
+                    {pending ? "Confirm Payment & Move To Members" : "Enroll As Member"}
                   </button>
                 </>
               ) : (
                 <form className="space-y-3" onSubmit={submitEnroll}>
-                  <p className="text-sm font-semibold text-brand-ink">New member details</p>
+                  <p className="text-sm font-semibold text-brand-ink">
+                    {pending ? "Confirm payment plan started" : "New member details"}
+                  </p>
+                  {pending ? (
+                    <p className="text-xs text-brand-muted">
+                      Chose <span className="font-medium text-brand-ink">{pending.planLabel}</span>
+                    </p>
+                  ) : null}
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">$ / Month</span>
@@ -548,7 +562,11 @@ export default function TrialProfilePanel({
                       disabled={enrollSaving}
                       className="flex-1 rounded-lg bg-brand-red px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     >
-                      {enrollSaving ? "Enrolling…" : "Confirm Enrollment"}
+                      {enrollSaving
+                        ? "Saving…"
+                        : pending
+                          ? "Payment Started — Move To Members"
+                          : "Confirm Enrollment"}
                     </button>
                     <button
                       type="button"

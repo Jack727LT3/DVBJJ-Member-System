@@ -218,7 +218,7 @@ export default function TodayMembersTab({
   const [memberAgeFilter, setMemberAgeFilter] = useState<MemberAgeFilter>("all");
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     checkIns: true,
-    allMembers: false,
+    allMembers: true,
     addMembers: false,
     addProfessors: false,
     memberNotes: false,

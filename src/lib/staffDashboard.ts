@@ -51,6 +51,14 @@ export function isChildMember(m: { ageGroup?: MemberAgeGroup }) {
   return m.ageGroup === "child";
 }
 
+/** Latest kiosk membership agreement awaiting staff payment confirmation. */
+export type StaffPendingAgreement = {
+  id: string;
+  planId: string;
+  planLabel: string;
+  signedAt: string;
+};
+
 export type StaffTrialRow = {
   id: string;
   firstName: string;
@@ -63,6 +71,7 @@ export type StaffTrialRow = {
   dateOfBirth: string | null;
   parents: StaffMemberParent[];
   notes: StaffMemberNote[];
+  pendingAgreement?: StaffPendingAgreement | null;
 };
 
 export type StaffGuestRow = {
@@ -79,6 +88,7 @@ export type StaffGuestRow = {
   completedTrial: boolean;
   parents: StaffMemberParent[];
   notes: StaffMemberNote[];
+  pendingAgreement?: StaffPendingAgreement | null;
 };
 
 export type StaffProfessorRow = {
@@ -419,6 +429,12 @@ const DEMO: StaffDashboard = {
           createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
         },
       ],
+      pendingAgreement: {
+        id: "demo-ma-1",
+        planId: "adult_monthly",
+        planLabel: "Adult Membership — $190 / month",
+        signedAt: new Date(Date.now() - 2 * 3600000).toISOString(),
+      },
     },
     {
       id: "g1",
@@ -473,7 +489,7 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
     const supabase = getSupabaseAdmin();
     const dayStart = startOfUtcDay();
 
-    const [analyticsRes, memberRpc, trialRpc, guestRpc, checkInsRes] = await Promise.all([
+    const [analyticsRes, memberRpc, trialRpc, guestRpc, checkInsRes, agreementsRes] = await Promise.all([
       supabase.rpc("admin_analytics"),
       supabase.rpc("admin_people_list", { p_status: "member" }),
       supabase.rpc("admin_people_list", { p_status: "trial" }),
@@ -485,6 +501,11 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
         )
         .order("timestamp", { ascending: false })
         .limit(50),
+      supabase
+        .from("membership_agreements")
+        .select("id, person_id, signed_at, plan_id, plan_label")
+        .order("signed_at", { ascending: false })
+        .limit(500),
     ]);
 
     if (analyticsRes.error || checkInsRes.error) {
@@ -548,6 +569,23 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
     const trialsRaw = (trialRpc.data ?? []) as RpcTrial[];
     const guestsRaw = (guestRpc.data ?? []) as RpcGuest[];
 
+    const latestAgreementByPerson = new Map<string, StaffPendingAgreement>();
+    for (const row of (agreementsRes.data ?? []) as {
+      id: string;
+      person_id: string;
+      signed_at: string;
+      plan_id: string;
+      plan_label: string;
+    }[]) {
+      if (latestAgreementByPerson.has(row.person_id)) continue;
+      latestAgreementByPerson.set(row.person_id, {
+        id: row.id,
+        planId: row.plan_id,
+        planLabel: row.plan_label,
+        signedAt: row.signed_at,
+      });
+    }
+
     const members: StaffMemberRow[] = membersRaw.map((p) => ({
       id: p.id,
       firstName: p.first_name,
@@ -577,6 +615,8 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
       staffFlagOther: p.staff_flag_other ?? null,
     }));
 
+    const memberIds = new Set(membersRaw.map((p) => p.id));
+
     const trials: StaffTrialRow[] = trialsRaw.map((p) => ({
       id: p.id,
       firstName: p.first_name,
@@ -595,29 +635,38 @@ export async function getStaffDashboard(): Promise<StaffDashboard> {
         body: n.body,
         createdAt: n.created_at,
       })),
+      pendingAgreement: memberIds.has(p.id) ? null : latestAgreementByPerson.get(p.id) ?? null,
     }));
 
-    const guests: StaffGuestRow[] = guestsRaw.map((p) => ({
-      id: p.id,
-      firstName: p.first_name,
-      lastName: p.last_name,
-      phone: p.phone,
-      email: p.email,
-      createdAt: p.created_at,
-      lastVisit: p.last_visit,
-      totalVisits: p.total_visits ?? 0,
-      dateOfBirth: p.date_of_birth ?? null,
-      ageGroup: p.member_age_group === "child" ? "child" : "adult",
-      completedTrial: Boolean(p.completed_trial),
-      parents: Array.isArray(p.member_parents)
-        ? p.member_parents.filter((g): g is StaffMemberParent => Boolean(g?.name && g?.phone))
-        : [],
-      notes: (p.notes ?? []).map((n) => ({
-        id: n.id,
-        body: n.body,
-        createdAt: n.created_at,
-      })),
-    }));
+    const guests: StaffGuestRow[] = guestsRaw
+      .map((p) => ({
+        id: p.id,
+        firstName: p.first_name,
+        lastName: p.last_name,
+        phone: p.phone,
+        email: p.email,
+        createdAt: p.created_at,
+        lastVisit: p.last_visit,
+        totalVisits: p.total_visits ?? 0,
+        dateOfBirth: p.date_of_birth ?? null,
+        ageGroup: (p.member_age_group === "child" ? "child" : "adult") as MemberAgeGroup,
+        completedTrial: Boolean(p.completed_trial),
+        parents: Array.isArray(p.member_parents)
+          ? p.member_parents.filter((g): g is StaffMemberParent => Boolean(g?.name && g?.phone))
+          : [],
+        notes: (p.notes ?? []).map((n) => ({
+          id: n.id,
+          body: n.body,
+          createdAt: n.created_at,
+        })),
+        pendingAgreement: memberIds.has(p.id) ? null : latestAgreementByPerson.get(p.id) ?? null,
+      }))
+      .sort((a, b) => {
+        const ap = a.pendingAgreement ? 0 : 1;
+        const bp = b.pendingAgreement ? 0 : 1;
+        if (ap !== bp) return ap - bp;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
 
     const recentCheckIns: StaffCheckInRow[] = (checkInsRes.data ?? []).map(
       (r: { id: string; timestamp: string; people: unknown }) => {
