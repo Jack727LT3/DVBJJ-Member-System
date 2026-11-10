@@ -78,10 +78,11 @@ export default function CalendarTab({
   onSchedulePrefillConsumed,
 }: CalendarTabProps) {
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
-  const [manualEvents, setManualEvents] = useState<CalendarEvent[]>([]);
-  const [overlays, setOverlays] = useState<CalendarTrialOverlay[]>([]);
+  // Seed from local cache immediately so remounts / first paint aren't blank while fetching.
+  const [manualEvents, setManualEvents] = useState<CalendarEvent[]>(() => loadDemoCalendarEvents());
+  const [overlays, setOverlays] = useState<CalendarTrialOverlay[]>(() => loadDemoOverlays());
   const [source, setSource] = useState<"live" | "demo">("demo");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [outOfStoreLeads, setOutOfStoreLeads] = useState<OutOfStoreLead[]>([]);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [selected, setSelected] = useState<CalendarEvent | null>(null);
@@ -128,6 +129,7 @@ export default function CalendarTab({
   const rangeTo = toDateKey(gridEnd);
 
   const loadEvents = useCallback(async () => {
+    // Keep showing cached events while refreshing — never clear first.
     setLoading(true);
     try {
       const res = await fetch(

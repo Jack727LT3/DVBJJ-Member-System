@@ -198,7 +198,8 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
           </button>
         </nav>
 
-        {activeTab === "today" ? (
+        {/* Keep tabs mounted so calendar events don't flash empty after leaving and returning. */}
+        <div className={activeTab === "today" ? undefined : "hidden"} aria-hidden={activeTab !== "today"}>
           <TodayMembersTab
             data={data}
             members={members}
@@ -207,7 +208,11 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
               setGuests((prev) => [guest, ...prev.filter((g) => g.id !== guest.id)]);
             }}
           />
-        ) : activeTab === "onboarding" ? (
+        </div>
+        <div
+          className={activeTab === "onboarding" ? undefined : "hidden"}
+          aria-hidden={activeTab !== "onboarding"}
+        >
           <OnboardingLeadsTab
             data={data}
             trials={trials}
@@ -224,7 +229,11 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
               setActiveTab("calendar");
             }}
           />
-        ) : (
+        </div>
+        <div
+          className={activeTab === "calendar" ? undefined : "hidden"}
+          aria-hidden={activeTab !== "calendar"}
+        >
           <CalendarTab
             trials={trials}
             guests={guests}
@@ -235,7 +244,7 @@ export default function StaffDashboardClient({ data }: StaffDashboardClientProps
             schedulePrefill={calendarPrefill}
             onSchedulePrefillConsumed={() => setCalendarPrefill(null)}
           />
-        )}
+        </div>
 
         <footer className="mt-10 space-y-3 border-t border-black/[0.06] pt-8 text-center text-xs text-brand-muted">
           <p>
