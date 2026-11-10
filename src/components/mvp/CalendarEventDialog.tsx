@@ -40,7 +40,7 @@ export default function CalendarEventDialog({
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [startDate, setStartDate] = useState(initialDate);
-  const [personKey, setPersonKey] = useState(MANUAL_KEY);
+  const [personKey, setPersonKey] = useState("");
   const [manualFirst, setManualFirst] = useState("");
   const [manualLast, setManualLast] = useState("");
   const [manualPhone, setManualPhone] = useState("");
@@ -64,6 +64,22 @@ export default function CalendarEventDialog({
       setTitle("");
     }
   }, [open, initialDate, initialKind, prefillPerson]);
+
+  function selectAppointment() {
+    setKind("appointment");
+    // Trial auto-selects "add manually"; don't leave that stuck when returning to Appointment.
+    if (personKey === MANUAL_KEY) {
+      setPersonKey("");
+      setManualFirst("");
+      setManualLast("");
+      setManualPhone("");
+    }
+  }
+
+  function selectTrial() {
+    setKind("scheduled_trial");
+    if (!personKey) setPersonKey(MANUAL_KEY);
+  }
 
   const personOptions = useMemo(() => {
     const guestOpts = guests.map((g) => ({
@@ -195,7 +211,7 @@ export default function CalendarEventDialog({
                 <div className="mt-1.5 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setKind("appointment")}
+                    onClick={selectAppointment}
                     className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
                       kind === "appointment" ? "bg-brand-ink text-white" : "border border-black/10 text-brand-ink"
                     }`}
@@ -204,10 +220,7 @@ export default function CalendarEventDialog({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setKind("scheduled_trial");
-                      if (!personKey) setPersonKey(MANUAL_KEY);
-                    }}
+                    onClick={selectTrial}
                     className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
                       kind === "scheduled_trial" ? "bg-brand-ink text-white" : "border border-black/10 text-brand-ink"
                     }`}
