@@ -760,11 +760,13 @@ function EventDetailSheet({
         className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 p-4 sm:items-center"
         role="dialog"
         aria-modal="true"
-        onClick={onClose}
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
       >
         <div
           className="w-full max-w-sm rounded-2xl border border-black/[0.06] bg-white p-5 shadow-xl"
-          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
         >
           <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">{kindLabel}</p>
           {canOpenProfile ? (

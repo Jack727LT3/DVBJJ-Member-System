@@ -169,11 +169,15 @@ export default function CalendarEventDialog({
         className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 p-4 sm:items-center"
         role="dialog"
         aria-modal="true"
-        onClick={onClose}
+        onMouseDown={(e) => {
+          // Only close when the press starts on the backdrop — not when a text
+          // selection drag ends outside the panel (that fires click on backdrop).
+          if (e.target === e.currentTarget) onClose();
+        }}
       >
         <div
           className="flex h-[min(90vh,36rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-xl"
-          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="shrink-0 px-5 pt-5">
             <h2 className="text-lg font-semibold text-brand-ink">Add to calendar</h2>
