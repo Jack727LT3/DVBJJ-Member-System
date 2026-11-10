@@ -144,10 +144,17 @@ export default function CalendarTab({
       setSource(json.source);
       const local = loadDemoCalendarEvents();
       const remote = json.events ?? [];
-      // Merge so locally-saved trials aren't lost if API flickers or RPC is partial
       const byId = new Map<string, CalendarEvent>();
-      for (const e of local) byId.set(e.id, e);
-      for (const e of remote) byId.set(e.id, e);
+      if (json.source === "live") {
+        // Live DB is source of truth — don't resurrect deleted events from local cache.
+        for (const e of remote) byId.set(e.id, e);
+        for (const e of local) {
+          if (String(e.id).startsWith("demo-")) byId.set(e.id, e);
+        }
+      } else {
+        for (const e of local) byId.set(e.id, e);
+        for (const e of remote) byId.set(e.id, e);
+      }
       const merged = [...byId.values()];
       setManualEvents(merged);
       saveDemoCalendarEvents(merged);
@@ -221,10 +228,16 @@ export default function CalendarTab({
     if (!confirm(`Remove “${event.title}” from the calendar?`)) return;
     setDeleting(true);
     try {
-      await fetch(`/api/mvp/calendar/${event.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/mvp/calendar/${event.id}`, { method: "DELETE" });
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok && json.error) {
+        alert(json.error);
+        return;
+      }
       setManualEvents((prev) => {
         const next = prev.filter((e) => e.id !== event.id);
-        if (source === "demo") saveDemoCalendarEvents(next);
+        // Always drop from local cache — otherwise refresh merges the deleted trial back in.
+        saveDemoCalendarEvents(next);
         return next;
       });
       setSelected(null);
