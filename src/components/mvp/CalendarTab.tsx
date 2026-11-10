@@ -140,11 +140,18 @@ export default function CalendarTab({
         trialOverlays?: CalendarTrialOverlay[];
       };
       setSource(json.source);
+      const local = loadDemoCalendarEvents();
+      const remote = json.events ?? [];
+      // Merge so locally-saved trials aren't lost if API flickers or RPC is partial
+      const byId = new Map<string, CalendarEvent>();
+      for (const e of local) byId.set(e.id, e);
+      for (const e of remote) byId.set(e.id, e);
+      const merged = [...byId.values()];
+      setManualEvents(merged);
+      saveDemoCalendarEvents(merged);
       if (json.source === "live") {
-        setManualEvents(json.events ?? []);
-        setOverlays(json.trialOverlays ?? []);
+        setOverlays(json.trialOverlays ?? loadDemoOverlays());
       } else {
-        setManualEvents(loadDemoCalendarEvents());
         setOverlays(loadDemoOverlays());
       }
     } catch {
@@ -190,10 +197,16 @@ export default function CalendarTab({
     setDialog({ date: toDateKey(date), kind, prefill: null });
   }
 
-  function handleSaved(event: CalendarEvent) {
+  function handleSaved(
+    event: CalendarEvent,
+    meta?: { source?: "live" | "demo"; guest?: StaffGuestRow }
+  ) {
+    if (meta?.source) setSource(meta.source);
+    if (meta?.guest) onGuestsChange?.([meta.guest, ...guests.filter((g) => g.id !== meta.guest!.id)]);
     setManualEvents((prev) => {
       const next = [event, ...prev.filter((e) => e.id !== event.id)];
-      if (source === "demo") saveDemoCalendarEvents(next);
+      // Always backup so leaving the tab doesn't drop a just-created trial
+      saveDemoCalendarEvents(next);
       return next;
     });
   }

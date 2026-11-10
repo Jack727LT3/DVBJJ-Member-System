@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 import PersonNotesSection from "@/components/mvp/PersonNotesSection";
+import MembershipAgreementHistorySection from "@/components/mvp/MembershipAgreementHistorySection";
 import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
 import MemberAttendanceSection from "@/components/mvp/MemberAttendanceSection";
 import PersonParentsSection from "@/components/mvp/PersonParentsSection";
@@ -526,7 +527,7 @@ export default function MemberProfilePanel({
               </section>
 
               <WaiverHistorySection personId={member.id} />
-
+              <MembershipAgreementHistorySection personId={member.id} />
               <PersonNotesSection
                 personId={member.id}
                 notes={member.notes}

@@ -6,6 +6,7 @@ import ModalPortal from "@/components/mvp/ModalPortal";
 import AddParentDialog from "@/components/mvp/AddParentDialog";
 import PersonParentsSection from "@/components/mvp/PersonParentsSection";
 import PersonNotesSection from "@/components/mvp/PersonNotesSection";
+import MembershipAgreementHistorySection from "@/components/mvp/MembershipAgreementHistorySection";
 import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
 import { formatDate, fullName } from "@/lib/mvpShared";
 import { formatPhoneDisplay } from "@/lib/phone";
@@ -92,6 +93,7 @@ export default function LeadProfilePanel({
           {parents.length > 0 ? <PersonParentsSection parents={parents} /> : null}
 
           <WaiverHistorySection personId={lead.id} />
+          <MembershipAgreementHistorySection personId={lead.id} />
 
           <PersonNotesSection
             personId={lead.id}

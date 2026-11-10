@@ -102,10 +102,10 @@ export function buildKioskMessage(
   }
 
   if (effective.status === "guest") {
-    return { title: "Welcome!", body: "Please sign in with the front desk." };
+    return { title: "Welcome!", body: "Please consult with front desk." };
   }
 
   // lead for messaging is handled separately for "lead first visit".
-  return { title: "Welcome!", body: "Please check in with front desk" };
+  return { title: "Welcome!", body: "Please consult with front desk." };
 }
 

@@ -4,11 +4,14 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import ModalPortal from "@/components/mvp/ModalPortal";
 import type { CalendarEvent, CalendarEventKind } from "@/lib/staffCalendar";
 import { fullName } from "@/lib/mvpShared";
+import { normalizePhone } from "@/lib/phone";
 import type { StaffGuestRow } from "@/lib/staffDashboard";
 import type { OutOfStoreLead } from "@/lib/outOfStoreLeads";
 
 const inputClass =
   "mt-1 w-full rounded-lg border border-black/10 px-3 py-2 text-sm outline-none focus:border-brand-red/40 focus:ring-4 focus:ring-brand-red/15";
+
+const MANUAL_KEY = "manual";
 
 type CalendarEventDialogProps = {
   open: boolean;
@@ -18,7 +21,7 @@ type CalendarEventDialogProps = {
   guests: StaffGuestRow[];
   outOfStoreLeads: OutOfStoreLead[];
   onClose: () => void;
-  onSaved: (event: CalendarEvent) => void;
+  onSaved: (event: CalendarEvent, meta?: { source?: "live" | "demo"; guest?: StaffGuestRow }) => void;
 };
 
 export default function CalendarEventDialog({
@@ -37,7 +40,10 @@ export default function CalendarEventDialog({
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [startDate, setStartDate] = useState(initialDate);
-  const [personKey, setPersonKey] = useState("");
+  const [personKey, setPersonKey] = useState(MANUAL_KEY);
+  const [manualFirst, setManualFirst] = useState("");
+  const [manualLast, setManualLast] = useState("");
+  const [manualPhone, setManualPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,11 +53,14 @@ export default function CalendarEventDialog({
     setStartDate(initialDate);
     setNotes("");
     setError(null);
+    setManualFirst("");
+    setManualLast("");
+    setManualPhone("");
     if (prefillPerson) {
       setPersonKey(`${prefillPerson.source}:${prefillPerson.id}`);
       setTitle(prefillPerson.name);
     } else {
-      setPersonKey("");
+      setPersonKey(initialKind === "scheduled_trial" ? MANUAL_KEY : "");
       setTitle("");
     }
   }, [open, initialDate, initialKind, prefillPerson]);
@@ -70,20 +79,59 @@ export default function CalendarEventDialog({
     return [...guestOpts, ...leadOpts];
   }, [guests, outOfStoreLeads]);
 
+  const isManual = personKey === MANUAL_KEY;
+
   if (!open) return null;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    const personId = personKey.includes(":") ? personKey.split(":")[1]! : null;
-    if (kind === "scheduled_trial" && !personId) {
-      setError("Pick a guest or out-of-gym lead for the trial.");
+
+    let personId: string | null =
+      personKey.includes(":") && !isManual ? personKey.split(":")[1]! : null;
+    let createdGuest: StaffGuestRow | undefined;
+    let eventTitle = title.trim();
+
+    if (kind === "scheduled_trial" && isManual) {
+      if (!manualFirst.trim() || !manualLast.trim() || normalizePhone(manualPhone).length < 4) {
+        setError("Enter first name, last name, and phone for the new person.");
+        return;
+      }
+      eventTitle = fullName(manualFirst.trim(), manualLast.trim());
+      setSaving(true);
+      try {
+        const guestRes = await fetch("/api/mvp/guests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            firstName: manualFirst.trim(),
+            lastName: manualLast.trim(),
+            phone: manualPhone,
+          }),
+        });
+        const guestJson = await guestRes.json();
+        if (!guestRes.ok || !guestJson.guest) {
+          setError(guestJson.error ?? "Could not create person.");
+          setSaving(false);
+          return;
+        }
+        createdGuest = guestJson.guest as StaffGuestRow;
+        personId = createdGuest.id;
+      } catch {
+        setError("Could not create person.");
+        setSaving(false);
+        return;
+      }
+    } else if (kind === "scheduled_trial" && !personId) {
+      setError("Pick a person or add them manually.");
       return;
     }
-    if (!title.trim()) {
+
+    if (!eventTitle) {
       setError("Add a title.");
       return;
     }
+
     setSaving(true);
     try {
       const res = await fetch("/api/mvp/calendar", {
@@ -91,7 +139,7 @@ export default function CalendarEventDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           kind,
-          title: title.trim(),
+          title: eventTitle,
           startDate,
           endDate: startDate,
           notes: notes.trim() || null,
@@ -103,7 +151,10 @@ export default function CalendarEventDialog({
         setError(json.error ?? "Could not save.");
         return;
       }
-      onSaved(json.event as CalendarEvent);
+      onSaved(json.event as CalendarEvent, {
+        source: json.source === "live" ? "live" : "demo",
+        guest: createdGuest,
+      });
       onClose();
     } catch {
       setError("Something went wrong.");
@@ -148,7 +199,10 @@ export default function CalendarEventDialog({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setKind("scheduled_trial")}
+                  onClick={() => {
+                    setKind("scheduled_trial");
+                    if (!personKey) setPersonKey(MANUAL_KEY);
+                  }}
                   className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
                     kind === "scheduled_trial" ? "bg-brand-ink text-white" : "border border-black/10 text-brand-ink"
                   }`}
@@ -176,13 +230,24 @@ export default function CalendarEventDialog({
                   value={personKey}
                   onChange={(e) => {
                     setPersonKey(e.target.value);
+                    if (e.target.value === MANUAL_KEY) {
+                      if (!title.trim()) setTitle("");
+                      return;
+                    }
                     const opt = personOptions.find((o) => o.key === e.target.value);
-                    if (opt && !title.trim()) setTitle(opt.label.split(" · ")[0] ?? opt.label);
+                    if (opt) setTitle(opt.label.split(" · ")[0] ?? opt.label);
                   }}
                   className={inputClass}
                   required={kind === "scheduled_trial"}
                 >
-                  <option value="">{kind === "scheduled_trial" ? "Select…" : "None"}</option>
+                  {kind === "scheduled_trial" ? (
+                    <option value={MANUAL_KEY}>+ Add person manually…</option>
+                  ) : (
+                    <option value="">None</option>
+                  )}
+                  {kind !== "scheduled_trial" ? (
+                    <option value={MANUAL_KEY}>+ Add person manually…</option>
+                  ) : null}
                   {personOptions.map((o) => (
                     <option key={o.key} value={o.key}>
                       {o.label}
@@ -192,10 +257,56 @@ export default function CalendarEventDialog({
               </label>
             ) : null}
 
-            <label className="block text-xs font-medium text-brand-ink">
-              Title
-              <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClass} required />
-            </label>
+            {isManual && (kind === "scheduled_trial" || personKey === MANUAL_KEY) ? (
+              <div className="space-y-2 rounded-xl border border-black/[0.06] bg-neutral-50/80 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">
+                  New person
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-xs font-medium text-brand-ink">
+                    First name
+                    <input
+                      value={manualFirst}
+                      onChange={(e) => {
+                        setManualFirst(e.target.value);
+                        setTitle(fullName(e.target.value, manualLast));
+                      }}
+                      className={inputClass}
+                      required={kind === "scheduled_trial"}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-brand-ink">
+                    Last name
+                    <input
+                      value={manualLast}
+                      onChange={(e) => {
+                        setManualLast(e.target.value);
+                        setTitle(fullName(manualFirst, e.target.value));
+                      }}
+                      className={inputClass}
+                      required={kind === "scheduled_trial"}
+                    />
+                  </label>
+                </div>
+                <label className="block text-xs font-medium text-brand-ink">
+                  Phone
+                  <input
+                    value={manualPhone}
+                    onChange={(e) => setManualPhone(e.target.value)}
+                    className={inputClass}
+                    inputMode="tel"
+                    required={kind === "scheduled_trial"}
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            {!isManual || kind === "appointment" ? (
+              <label className="block text-xs font-medium text-brand-ink">
+                Title
+                <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClass} required />
+              </label>
+            ) : null}
 
             <label className="block text-xs font-medium text-brand-ink">
               Notes (optional)

@@ -43,7 +43,7 @@ function devGuestCheckInSuccessResponse(startTrial: boolean) {
   return NextResponse.json(
     {
       messageTitle: "Welcome!",
-      messageBody: "Please sign in with the front desk.",
+      messageBody: "Please consult with front desk.",
       confirmation: { checkInLogged: true },
       trialDaysLeft: startTrial ? 7 : null,
       status: startTrial ? "trial" : "guest",

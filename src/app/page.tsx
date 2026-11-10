@@ -10,7 +10,9 @@ import {
 } from "@/lib/statusResolver";
 import DvbjjLogo from "@/components/DvbjjLogo";
 import KioskInteractiveWaiver from "@/components/KioskInteractiveWaiver";
+import KioskMembershipAgreement from "@/components/KioskMembershipAgreement";
 import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
+import type { MembershipAgreementSubmitPayload } from "@/lib/membershipAgreementTypes";
 import type { WaiverSubmitPayload } from "@/lib/waiverTypes";
 
 type KioskSearchResult = {
@@ -47,14 +49,14 @@ type Outcome =
   | { kind: "guestWelcome"; firstName: string; trialDaysLeft: number | null }
   | { kind: "multiCheckIn"; names: string[]; failedNames: string[] };
 
-const GUEST_WELCOME_TAGLINE = "Please see the front desk to get set up.";
+const GUEST_WELCOME_TAGLINE = "Please consult with front desk.";
 
 function guestTrialStatusLine(trialDaysLeft: number | null): string {
   if (trialDaysLeft === null) {
     return "You're checked in for today.";
   }
   if (trialDaysLeft <= 0) {
-    return "Your free trial period has ended—please see the front desk.";
+    return "Your free trial period has ended—please consult with front desk.";
   }
   return `You have ${trialDaysLeft} ${trialDaysLeft === 1 ? "day" : "days"} left on your free trial.`;
 }
@@ -110,7 +112,13 @@ export default function KioskHome() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  type FlowMode = "phoneEntry" | "profilePick" | "guestForm" | "guestWaiver" | "outcome";
+  type FlowMode =
+    | "phoneEntry"
+    | "profilePick"
+    | "guestForm"
+    | "guestWaiver"
+    | "membershipAgreement"
+    | "outcome";
   type GuestSignupMode = "trial" | "guest";
   const [mode, setMode] = useState<FlowMode>("phoneEntry");
   const [guestSignupMode, setGuestSignupMode] = useState<GuestSignupMode>("trial");
@@ -121,6 +129,13 @@ export default function KioskHome() {
   const [pendingCheckInAfterWaiver, setPendingCheckInAfterWaiver] = useState(false);
   const [isFamilySignup, setIsFamilySignup] = useState(false);
   const [waiverSubmitting, setWaiverSubmitting] = useState(false);
+  const [membershipSubmitting, setMembershipSubmitting] = useState(false);
+  const [membershipPerson, setMembershipPerson] = useState<{
+    id: string;
+    firstName: string;
+    lastName: string;
+  } | null>(null);
+  const [showBecomeMember, setShowBecomeMember] = useState(false);
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
   const resetTimerRef = useRef<number | null>(null);
 
@@ -155,6 +170,9 @@ export default function KioskHome() {
     setPendingCheckInAfterWaiver(false);
     setIsFamilySignup(false);
     setSelectedProfileIds([]);
+    setMembershipPerson(null);
+    setShowBecomeMember(false);
+    setMembershipSubmitting(false);
     clearPhoneLookupState();
     clearGuestFormState();
     setSearchError(null);
@@ -269,6 +287,23 @@ export default function KioskHome() {
 
   const applyCheckInOutcome = (r: KioskSearchResult, json: CheckInResponse) => {
     const welcomeName = sanitizeName(r.firstName) || "there";
+    const canBecomeMember =
+      r.status === "guest" ||
+      r.status === "trial" ||
+      r.status === "lead" ||
+      (r.status === "member" && r.memberState !== "active" && r.memberState !== null);
+
+    if (canBecomeMember) {
+      setMembershipPerson({
+        id: r.id,
+        firstName: sanitizeName(r.firstName),
+        lastName: sanitizeName(r.lastName),
+      });
+      setShowBecomeMember(true);
+    } else {
+      setMembershipPerson(null);
+      setShowBecomeMember(false);
+    }
 
     if (
       (r.status === "member" && (r.memberState === "active" || r.memberState === null)) ||
@@ -285,6 +320,12 @@ export default function KioskHome() {
         title: json.messageTitle,
         body: json.messageBody,
       });
+    } else if (r.status === "guest") {
+      setOutcome({
+        kind: "guestWelcome",
+        firstName: welcomeName,
+        trialDaysLeft: r.daysLeftInTrial,
+      });
     } else {
       setOutcome({
         kind: "message",
@@ -295,6 +336,45 @@ export default function KioskHome() {
 
     setMode("outcome");
     startAutoReset();
+  };
+
+  const openMembershipAgreement = () => {
+    if (!membershipPerson) return;
+    clearResetTimer();
+    setMode("membershipAgreement");
+  };
+
+  const completeMembershipAgreement = async (payload: MembershipAgreementSubmitPayload) => {
+    if (!membershipPerson) return;
+    setMembershipSubmitting(true);
+    setSearchError(null);
+    try {
+      const res = await fetch("/api/kiosk/membership-agreement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          personId: membershipPerson.id,
+          ...payload,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setSearchError(json.error ?? "Could not save membership agreement.");
+        return;
+      }
+      setOutcome({
+        kind: "message",
+        title: "Agreement signed",
+        body: "Thanks! Please consult with front desk to finish membership setup.",
+      });
+      setShowBecomeMember(false);
+      setMode("outcome");
+      startAutoReset();
+    } catch {
+      setSearchError("Could not save membership agreement.");
+    } finally {
+      setMembershipSubmitting(false);
+    }
   };
 
   const performKioskCheckIn = async (r: KioskSearchResult): Promise<CheckInResponse> => {
@@ -324,6 +404,12 @@ export default function KioskHome() {
     }
 
     if (memberNeedsFrontDesk(r)) {
+      setMembershipPerson({
+        id: r.id,
+        firstName: sanitizeName(r.firstName),
+        lastName: sanitizeName(r.lastName),
+      });
+      setShowBecomeMember(true);
       setOutcome({ kind: "membershipHold" });
       setMode("outcome");
       startAutoReset();
@@ -554,6 +640,14 @@ export default function KioskHome() {
 
     const first = pendingGuestFirstName ?? "there";
     const trialLeft = guestSignupMode === "trial" ? pendingGuestTrialDaysLeft : null;
+    if (pendingGuestPersonId) {
+      setMembershipPerson({
+        id: pendingGuestPersonId,
+        firstName: sanitizeName(firstNameGuest) || first,
+        lastName: sanitizeName(lastNameGuest),
+      });
+      setShowBecomeMember(true);
+    }
     setPendingGuestFirstName(null);
     setPendingGuestTrialDaysLeft(null);
     setPendingGuestPersonId(null);
@@ -607,15 +701,17 @@ export default function KioskHome() {
   const headerStatus =
     mode === "outcome"
       ? "Thanks for checking in"
-      : mode === "guestWaiver"
-        ? "Liability waiver"
-        : mode === "guestForm"
-          ? guestSignupMode === "trial"
-            ? "Free trial"
-            : "Guest account"
-          : mode === "profilePick"
-            ? "Confirm your profile"
-            : "Check In";
+      : mode === "membershipAgreement"
+        ? "Membership agreement"
+        : mode === "guestWaiver"
+          ? "Liability waiver"
+          : mode === "guestForm"
+            ? guestSignupMode === "trial"
+              ? "Free trial"
+              : "Guest account"
+            : mode === "profilePick"
+              ? "Confirm your profile"
+              : "Check In";
 
   return (
     <main className="min-h-screen flex flex-col bg-brand-cream font-sans text-brand-ink">
@@ -708,16 +804,53 @@ export default function KioskHome() {
             </KioskSnakeBorderCard>
           ) : null}
 
+          {showBecomeMember && membershipPerson ? (
+            <button
+              type="button"
+              onClick={openMembershipAgreement}
+              className="mt-6 w-full max-w-xl rounded-lg border border-brand-ink bg-white px-4 py-4 text-base font-semibold text-brand-ink shadow-sm transition-colors hover:bg-neutral-50"
+            >
+              Become a member
+            </button>
+          ) : null}
+
           <button
             type="button"
             onClick={resetAfterOutcome}
-            className="mt-8 w-full max-w-xl rounded-lg bg-brand-red px-4 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-red-hover"
+            className="mt-4 w-full max-w-xl rounded-lg bg-brand-red px-4 py-4 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-red-hover"
           >
             Back to sign in
           </button>
           <p className="mt-3 max-w-xl text-center text-xs text-black/40">
             This screen will return to sign in shortly.
           </p>
+        </div>
+      ) : mode === "membershipAgreement" && membershipPerson ? (
+        <div className="flex flex-1 flex-col px-5 py-8">
+          <div className="mx-auto flex h-[min(90vh,880px)] w-full max-w-xl min-h-0 flex-col gap-3">
+            <KioskSnakeBorderCard
+              className="flex min-h-0 flex-1 flex-col"
+              innerClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
+            >
+              <KioskMembershipAgreement
+                firstName={membershipPerson.firstName}
+                lastName={membershipPerson.lastName}
+                onComplete={completeMembershipAgreement}
+                submitting={membershipSubmitting}
+              />
+            </KioskSnakeBorderCard>
+            {searchError ? <p className="text-center text-sm text-red-700">{searchError}</p> : null}
+            <button
+              type="button"
+              onClick={() => {
+                setMode("outcome");
+                startAutoReset();
+              }}
+              className="rounded-lg border border-black/10 bg-white px-4 py-3 text-sm font-medium text-brand-ink"
+            >
+              Back
+            </button>
+          </div>
         </div>
       ) : mode === "guestWaiver" ? (
         <div className="flex flex-1 flex-col px-5 py-8">

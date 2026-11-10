@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 import PersonNotesSection from "@/components/mvp/PersonNotesSection";
+import MembershipAgreementHistorySection from "@/components/mvp/MembershipAgreementHistorySection";
 import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
 import { buildMemberFromGuestEnroll, type GuestEnrollPayload } from "@/lib/guestEnroll";
 import AddParentDialog from "@/components/mvp/AddParentDialog";
@@ -310,6 +311,7 @@ export default function GuestProfilePanel({
                 </dl>
 
                 <WaiverHistorySection personId={guest.id} />
+                <MembershipAgreementHistorySection personId={guest.id} />
 
                 <PersonParentsSection parents={parents} />
 

@@ -5,6 +5,7 @@ import KioskSnakeBorderCard from "@/components/KioskSnakeBorderCard";
 import AddParentDialog from "@/components/mvp/AddParentDialog";
 import PersonNotesSection from "@/components/mvp/PersonNotesSection";
 import PersonParentsSection from "@/components/mvp/PersonParentsSection";
+import MembershipAgreementHistorySection from "@/components/mvp/MembershipAgreementHistorySection";
 import WaiverHistorySection from "@/components/mvp/WaiverHistorySection";
 import { buildMemberFromTrialEnroll, type GuestEnrollPayload } from "@/lib/guestEnroll";
 import { beltSelectOptions, formatDate, formatMemberAge, formatTrialDaysLeft, fullName } from "@/lib/mvpShared";
@@ -423,6 +424,7 @@ export default function TrialProfilePanel({
               <>
                 <PersonParentsSection parents={parents} />
                 <WaiverHistorySection personId={trial.id} />
+                <MembershipAgreementHistorySection personId={trial.id} />
                 <PersonNotesSection
                   personId={trial.id}
                   notes={trial.notes}
