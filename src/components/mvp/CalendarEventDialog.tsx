@@ -172,58 +172,58 @@ export default function CalendarEventDialog({
         onClick={onClose}
       >
         <div
-          className="w-full max-w-md rounded-2xl border border-black/[0.06] bg-white p-5 shadow-xl"
+          className="flex h-[min(90vh,36rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <h2 className="text-lg font-semibold text-brand-ink">
-            {kind === "scheduled_trial" ? "Schedule trial" : "Add to calendar"}
-          </h2>
-          <p className="mt-1 text-sm text-brand-muted">
-            {kind === "scheduled_trial"
-              ? "Grey on the calendar until the start day, then a full 7-day trial bar."
-              : "Appointments show on a single day — useful for guest / lead visits."}
-          </p>
+          <div className="shrink-0 px-5 pt-5">
+            <h2 className="text-lg font-semibold text-brand-ink">Add to calendar</h2>
+            <p className="mt-1 min-h-[2.5rem] text-sm text-brand-muted">
+              {kind === "scheduled_trial"
+                ? "Grey until the start day, then a full 7-day trial bar."
+                : "Appointments show on a single day — useful for guest / lead visits."}
+            </p>
+          </div>
 
-          <form className="mt-4 space-y-3" onSubmit={submit}>
-            <fieldset>
-              <legend className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Type</legend>
-              <div className="mt-1.5 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setKind("appointment")}
-                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                    kind === "appointment" ? "bg-brand-ink text-white" : "border border-black/10 text-brand-ink"
-                  }`}
-                >
-                  Appointment
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setKind("scheduled_trial");
-                    if (!personKey) setPersonKey(MANUAL_KEY);
-                  }}
-                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                    kind === "scheduled_trial" ? "bg-brand-ink text-white" : "border border-black/10 text-brand-ink"
-                  }`}
-                >
-                  Trial (7 days)
-                </button>
-              </div>
-            </fieldset>
+          <form className="mt-3 flex min-h-0 flex-1 flex-col" onSubmit={submit}>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 pb-3">
+              <fieldset>
+                <legend className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">Type</legend>
+                <div className="mt-1.5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setKind("appointment")}
+                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
+                      kind === "appointment" ? "bg-brand-ink text-white" : "border border-black/10 text-brand-ink"
+                    }`}
+                  >
+                    Appointment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKind("scheduled_trial");
+                      if (!personKey) setPersonKey(MANUAL_KEY);
+                    }}
+                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
+                      kind === "scheduled_trial" ? "bg-brand-ink text-white" : "border border-black/10 text-brand-ink"
+                    }`}
+                  >
+                    Trial (7 days)
+                  </button>
+                </div>
+              </fieldset>
 
-            <label className="block text-xs font-medium text-brand-ink">
-              Date
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className={inputClass}
-                required
-              />
-            </label>
+              <label className="block text-xs font-medium text-brand-ink">
+                Date
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className={inputClass}
+                  required
+                />
+              </label>
 
-            {kind === "scheduled_trial" || personOptions.length > 0 ? (
               <label className="block text-xs font-medium text-brand-ink">
                 {kind === "scheduled_trial" ? "Person" : "Link person (optional)"}
                 <select
@@ -255,10 +255,15 @@ export default function CalendarEventDialog({
                   ))}
                 </select>
               </label>
-            ) : null}
 
-            {isManual && (kind === "scheduled_trial" || personKey === MANUAL_KEY) ? (
-              <div className="space-y-2 rounded-xl border border-black/[0.06] bg-neutral-50/80 p-3">
+              <div
+                className={`space-y-2 rounded-xl border border-black/[0.06] bg-neutral-50/80 p-3 ${
+                  isManual && (kind === "scheduled_trial" || personKey === MANUAL_KEY)
+                    ? ""
+                    : "invisible pointer-events-none"
+                }`}
+                aria-hidden={!(isManual && (kind === "scheduled_trial" || personKey === MANUAL_KEY))}
+              >
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">
                   New person
                 </p>
@@ -272,7 +277,8 @@ export default function CalendarEventDialog({
                         setTitle(fullName(e.target.value, manualLast));
                       }}
                       className={inputClass}
-                      required={kind === "scheduled_trial"}
+                      required={kind === "scheduled_trial" && isManual}
+                      tabIndex={isManual ? undefined : -1}
                     />
                   </label>
                   <label className="block text-xs font-medium text-brand-ink">
@@ -284,7 +290,8 @@ export default function CalendarEventDialog({
                         setTitle(fullName(manualFirst, e.target.value));
                       }}
                       className={inputClass}
-                      required={kind === "scheduled_trial"}
+                      required={kind === "scheduled_trial" && isManual}
+                      tabIndex={isManual ? undefined : -1}
                     />
                   </label>
                 </div>
@@ -295,27 +302,38 @@ export default function CalendarEventDialog({
                     onChange={(e) => setManualPhone(e.target.value)}
                     className={inputClass}
                     inputMode="tel"
-                    required={kind === "scheduled_trial"}
+                    required={kind === "scheduled_trial" && isManual}
+                    tabIndex={isManual ? undefined : -1}
                   />
                 </label>
               </div>
-            ) : null}
 
-            {!isManual || kind === "appointment" ? (
-              <label className="block text-xs font-medium text-brand-ink">
+              <label
+                className={`block text-xs font-medium text-brand-ink ${
+                  !isManual || kind === "appointment" ? "" : "invisible pointer-events-none"
+                }`}
+              >
                 Title
-                <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClass} required />
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className={inputClass}
+                  required={!isManual || kind === "appointment"}
+                  tabIndex={!isManual || kind === "appointment" ? undefined : -1}
+                />
               </label>
-            ) : null}
 
-            <label className="block text-xs font-medium text-brand-ink">
-              Notes (optional)
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
-            </label>
+              <label className="block text-xs font-medium text-brand-ink">
+                Notes (optional)
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
+              </label>
 
-            {error ? <p className="text-xs text-red-700">{error}</p> : null}
+              <p className={`min-h-[1rem] text-xs text-red-700 ${error ? "" : "invisible"}`}>
+                {error ?? " "}
+              </p>
+            </div>
 
-            <div className="flex gap-2 pt-1">
+            <div className="flex shrink-0 gap-2 border-t border-black/[0.06] px-5 py-3">
               <button
                 type="submit"
                 disabled={saving}
